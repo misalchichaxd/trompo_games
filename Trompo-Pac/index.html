@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trompobot: Laberinto de Ciencia</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head><body>
+
+<!-- Botón regresar (izquierda) -->
+<button id="back-btn" class="back-btn" aria-label="Regresar al menú" title="Regresar">←</button>
+
+<!-- Botones de esquina: pausa arriba, dash abajo -->
+<div class="corner">
+  <button id="pb" class="cbtn" aria-label="Pausar" title="Pausa (P)" disabled>❚❚</button>
+  <button id="db" class="cbtn dash" aria-label="Dash" title="Dash (Shift)">
+    <i class="fill" id="dfill"></i><span class="dico">⚡</span><b class="dkey">SHIFT</b>
+  </button>
+</div>
+
+<main class="bubble">
+<div class="top"><p class="museo">el trompo · Museo Interactivo Tijuana</p><h1 id="t" aria-label="Trompobot"></h1>
+<div class="hud"><span>Puntos: <b id="s">0</b></span><span>Nivel: <b id="lv">1</b></span><span>Vidas: <b id="v">3</b></span><span>Récord: <b id="bs">0</b></span></div></div>
+<div class="wrap"><canvas id="c" aria-label="Laberinto de Trompobot"></canvas>
+
+<div class="ov" id="ov"><h2 id="ot">¡Hola, soy Trompobot!</h2><p id="op">Recoge todas las chispas de colores. Cuidado con los triángulos garabato. Con una chispa de ciencia ✷ los dejas mareados.</p>
+  <!-- Top 5 -->
+  <div class="leaderboard"><div class="lb-title">★ TOP 5 ★</div><ol id="lb-list"></ol></div>
+  <button class="play" id="go">Jugar</button></div>
+
+<div class="ov hide" id="pz"><h2>Pausa</h2><p>El juego está detenido.</p><button class="play" id="resume">Continuar</button></div>
+</div>
+<div class="pad"><button data-d="u" aria-label="Arriba">▲</button><button data-d="l" aria-label="Izquierda">◀</button><button data-d="d" aria-label="Abajo">▼</button><button data-d="r" aria-label="Derecha">▶</button></div>
+<small>Flechas o WASD para moverte · Shift = dash · P = pausa. En celular, gíralo en horizontal y desliza el dedo. ¡Imagínate, aprendiendo jugando!</small>
+</main>
+
+<!-- Pantalla de entrada de nombre (top 5) -->
+<div id="name-entry" style="display:none;">
+  <div class="ne-title">¡NUEVO RÉCORD!</div>
+  <div class="ne-score" id="ne-score">0</div>
+  <div class="ne-rank" id="ne-rank">#1</div>
+  <div class="ne-label">Escribe tu nombre</div>
+
+  <div class="ne-chars-row">
+    <div class="ne-chars" id="ne-chars">
+      <div class="ne-slot active" data-i="0">A</div>
+      <div class="ne-slot" data-i="1">A</div>
+      <div class="ne-slot" data-i="2">A</div>
+    </div>
+    <button class="ne-add" id="ne-add" aria-label="Agregar letra">+</button>
+    <button class="ne-add ne-remove" id="ne-remove" aria-label="Quitar letra" style="display:none;">−</button>
+  </div>
+
+  <div class="ne-controls">
+    <button class="ne-btn" id="ne-left" aria-label="Anterior">◀</button>
+    <button class="ne-btn ne-btn-ok" id="ne-next">SIGUIENTE</button>
+    <button class="ne-btn" id="ne-right" aria-label="Siguiente">▶</button>
+  </div>
+
+  <button class="ne-btn ne-btn-save" id="ne-save" style="display:none;">✓ GUARDAR</button>
+  <button class="ne-btn ne-btn-skip" id="ne-skip">OMITIR</button>
+
+  <div class="ne-warn">⚠ Si el nombre contiene groserías, el récord será eliminado.</div>
+  <div class="ne-hint">Toca ◀ ▶ para cambiar letra · + para alargar (máx. 10)</div>
+</div>
+
+<!-- Confirmar regreso al menú -->
+<div id="back-confirm" style="display:none;">
+  <div class="bc-title">¿Salir del juego?</div>
+  <div class="bc-msg">Volverás al menú de juegos.<br>Tu partida actual se perderá.</div>
+  <div class="bc-btns">
+    <button class="ne-btn ne-btn-ok" id="bc-yes">✓ SÍ, SALIR</button>
+    <button class="ne-btn" id="bc-no">✗ SEGUIR JUGANDO</button>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body></html>

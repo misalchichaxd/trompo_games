@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <title>Trompo Runner · Museo Interactivo Tijuana</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="Style.css" />
+</head>
+<body>
+
+  <div id="game-wrapper">
+
+    <canvas id="c"></canvas>
+
+    <!-- Botón regresar al menú -->
+    <button id="back-btn" class="back-btn" aria-label="Regresar al menú" title="Regresar">←</button>
+
+    <!-- HUD -->
+    <div id="hud">
+      <div class="hud-box">PUNTOS <span id="sc">0</span></div>
+      <div class="hud-box hud-coins">◆ <span id="coins">0</span></div>
+      <div class="hud-box">RÉCORD <span id="bs">0</span></div>
+    </div>
+
+    <!-- Overlay de inicio / game over -->
+    <div id="overlay">
+      <div id="title">TROMPO RUNNER</div>
+      <div id="msg">¡Esquiva los obstáculos y recoge chispas de ciencia!</div>
+
+      <!-- Top 5 scores -->
+      <div id="leaderboard" class="leaderboard">
+        <div class="lb-title">★ TOP 5 ★</div>
+        <ol id="lb-list"></ol>
+      </div>
+
+      <button id="btn">▶ JUGAR</button>
+      <div id="hint">← → / A D  cambiar carril  |  ESPACIO / ↑  saltar</div>
+    </div>
+
+    <!-- Pantalla de entrada de nombre (top 5) -->
+    <div id="name-entry" style="display:none;">
+      <div class="ne-title">¡NUEVO RÉCORD!</div>
+      <div class="ne-score" id="ne-score">0</div>
+      <div class="ne-rank" id="ne-rank">#1</div>
+      <div class="ne-label">Escribe tu nombre</div>
+
+      <div class="ne-chars-row">
+        <div class="ne-chars" id="ne-chars">
+          <div class="ne-slot active" data-i="0">A</div>
+          <div class="ne-slot" data-i="1">A</div>
+          <div class="ne-slot" data-i="2">A</div>
+        </div>
+        <button class="ne-add" id="ne-add" aria-label="Agregar letra">+</button>
+        <button class="ne-add ne-remove" id="ne-remove" aria-label="Quitar letra" style="display:none;">−</button>
+      </div>
+
+      <div class="ne-controls">
+        <button class="ne-btn" id="ne-left" aria-label="Anterior">◀</button>
+        <button class="ne-btn ne-btn-ok" id="ne-next">SIGUIENTE</button>
+        <button class="ne-btn" id="ne-right" aria-label="Siguiente">▶</button>
+      </div>
+
+      <button class="ne-btn ne-btn-save" id="ne-save" style="display:none;">✓ GUARDAR</button>
+      <button class="ne-btn ne-btn-skip" id="ne-skip">OMITIR</button>
+
+      <div class="ne-warn">
+        ⚠ Si el nombre contiene groserías, el récord será eliminado.
+      </div>
+      <div class="ne-hint">Toca ◀ ▶ para cambiar letra · + para alargar (máx. 10)</div>
+    </div>
+
+    <!-- Pantalla de revive -->
+    <div id="revive-screen" style="display:none;">
+      <div class="rv-title">¡OH NO!</div>
+      <div class="rv-score" id="rv-score">0</div>
+      <div class="rv-coins" id="rv-coins">◆ 0 monedas</div>
+      <div class="rv-msg">¿Quieres revivir?</div>
+      <div class="rv-cost">Cuesta 10 ◆</div>
+      <div class="rv-btns">
+        <button class="ne-btn ne-btn-ok" id="rv-yes">✓ REVIVIR</button>
+        <button class="ne-btn" id="rv-no">✗ NO, TERMINAR</button>
+      </div>
+    </div>
+
+    <!-- Confirmar regreso al menú -->
+    <div id="back-confirm" style="display:none;">
+      <div class="bc-title">¿Salir del juego?</div>
+      <div class="bc-msg">Volverás al menú de juegos.<br>Tu partida actual se perderá.</div>
+      <div class="bc-btns">
+        <button class="ne-btn ne-btn-ok" id="bc-yes">✓ SÍ, SALIR</button>
+        <button class="ne-btn" id="bc-no">✗ SEGUIR JUGANDO</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Three.js desde CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="Game.js"></script>
+</body>
+</html>

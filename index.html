@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>el trompo · Museo Interactivo Tijuana</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --purple:#7b3fbf;
+  --deep:#4f2688;
+  --lime:#c8d414;
+  --red:#e5083f;
+  --teal:#0e9dae;
+  --orange:#f7a11a;
+  --paper:#fffdf7;
+  --ink:#17211f;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--purple);
+  font-family:'Fredoka','Trebuchet MS',sans-serif;
+  color:var(--deep);
+  min-height:100vh;
+  min-height:100dvh;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  padding:calc(12px + env(safe-area-inset-top,0px)) 16px calc(12px + env(safe-area-inset-bottom,0px));
+  overflow-x:hidden;
+}
+body::before{
+  content:'';
+  position:fixed;
+  inset:0;
+  background:
+    radial-gradient(circle at 12% 18%, #9b5fd944 0%, transparent 42%),
+    radial-gradient(circle at 88% 78%, #c8d41433 0%, transparent 48%),
+    radial-gradient(circle at 70% 12%, #e5083f22 0%, transparent 35%);
+  pointer-events:none;
+  z-index:0;
+}
+.spark{
+  position:fixed;
+  width:10px;height:10px;
+  border-radius:50%;
+  opacity:0.35;
+  pointer-events:none;
+  z-index:0;
+  animation:float 6s ease-in-out infinite;
+}
+.spark:nth-child(1){top:12%;left:8%;animation-delay:0s;background:var(--lime)}
+.spark:nth-child(2){top:22%;right:10%;animation-delay:1.2s;background:var(--orange);width:8px;height:8px}
+.spark:nth-child(3){bottom:18%;left:14%;animation-delay:2.4s;background:var(--teal);width:12px;height:12px}
+.spark:nth-child(4){bottom:28%;right:12%;animation-delay:0.8s;background:#ff6b9d;width:7px;height:7px}
+.spark:nth-child(5){top:48%;left:5%;animation-delay:3s;background:var(--red);width:9px;height:9px}
+@keyframes float{
+  0%,100%{transform:translateY(0) scale(1);opacity:0.3}
+  50%{transform:translateY(-18px) scale(1.25);opacity:0.55}
+}
+.shell{
+  position:relative;
+  z-index:1;
+  background:var(--paper);
+  border-radius:42px;
+  padding:clamp(20px,3vw,36px) clamp(18px,3vw,40px) clamp(22px,3vw,36px);
+  max-width:920px;
+  width:100%;
+  text-align:center;
+  box-shadow:0 0 0 7px #fff4,0 12px 0 var(--deep),0 22px 50px #0005;
+}
+.museo{
+  font-weight:700;
+  font-size:clamp(13px,2vw,16px);
+  color:var(--purple);
+  letter-spacing:0.6px;
+  margin-bottom:4px;
+}
+h1{
+  font-size:clamp(36px,8vw,58px);
+  line-height:1.05;
+  letter-spacing:2px;
+  margin-bottom:4px;
+}
+h1 span{
+  display:inline-block;
+  -webkit-text-stroke:7px #fff;
+  paint-order:stroke fill;
+  text-shadow:0 4px 0 #0002;
+}
+.tagline{
+  font-size:clamp(15px,2.2vw,19px);
+  color:var(--deep);
+  opacity:0.9;
+  margin-bottom:clamp(18px,3vw,28px);
+  line-height:1.35;
+}
+.games{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:clamp(14px,2.5vw,22px);
+}
+.card{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  text-decoration:none;
+  color:inherit;
+  background:#fff;
+  border:4px solid var(--purple);
+  border-radius:28px;
+  padding:clamp(20px,3.5vw,32px) 16px clamp(18px,3vw,28px);
+  box-shadow:0 8px 0 var(--deep);
+  transition:transform .15s, box-shadow .15s;
+  min-height:clamp(200px,32vw,280px);
+  position:relative;
+  overflow:hidden;
+}
+.card::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:linear-gradient(160deg, #fff8 0%, transparent 50%);
+  pointer-events:none;
+}
+.card:active{
+  transform:translateY(6px);
+  box-shadow:0 2px 0 var(--deep);
+}
+.card:focus-visible{
+  outline:4px solid var(--orange);
+  outline-offset:4px;
+}
+.icon{
+  width:clamp(72px,14vw,110px);
+  height:clamp(72px,14vw,110px);
+  border-radius:28px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:clamp(40px,8vw,60px);
+  color:#fff;
+  box-shadow:0 5px 0 #0003, inset 0 -4px 0 #0002;
+  position:relative;
+  z-index:1;
+  animation:bounce 2.4s ease-in-out infinite;
+}
+.card.trompo .icon{ background:linear-gradient(145deg, #12b8c9, var(--teal)); }
+.card.cube .icon{ background:linear-gradient(145deg, #ffb84a, var(--orange)); animation-delay:0.35s; }
+@keyframes bounce{
+  0%,100%{transform:translateY(0)}
+  50%{transform:translateY(-8px)}
+}
+.info{ position:relative; z-index:1; text-align:center; }
+.info h2{
+  font-size:clamp(20px,3.5vw,28px);
+  margin-bottom:4px;
+  letter-spacing:0.4px;
+  color:var(--deep);
+}
+.info p{
+  font-size:clamp(13px,1.8vw,16px);
+  opacity:0.85;
+  line-height:1.35;
+  max-width:220px;
+  margin:0 auto;
+}
+.play-pill{
+  position:relative;
+  z-index:1;
+  margin-top:6px;
+  font-weight:700;
+  font-size:clamp(15px,2.2vw,18px);
+  padding:10px 22px;
+  border-radius:999px;
+  letter-spacing:0.5px;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  color:var(--ink);
+}
+.card.trompo .play-pill{ background:var(--lime); box-shadow:0 4px 0 #8a9200; }
+.card.cube  .play-pill{ background:var(--orange); box-shadow:0 4px 0 #b87000; }
+.footer{
+  margin-top:clamp(16px,2.5vw,24px);
+  font-size:clamp(12px,1.6vw,14px);
+  color:var(--purple);
+  opacity:0.8;
+  font-weight:700;
+}
+@media (hover:hover) and (pointer:fine){
+  .card:hover{
+    transform:translateY(-4px) scale(1.02);
+    box-shadow:0 12px 0 var(--deep);
+  }
+  .card:hover .icon{ animation-duration:1.2s; }
+  .card:hover .play-pill{ transform:scale(1.06); }
+}
+@media (max-width:560px){
+  .games{ grid-template-columns:1fr; gap:14px; }
+  .card{
+    min-height:160px;
+    flex-direction:row;
+    text-align:left;
+    padding:16px 14px;
+    gap:14px;
+  }
+  .card .info{ text-align:left; }
+  .card .info p{ margin:0; max-width:none; }
+  .icon{
+    width:70px;height:70px;
+    font-size:36px;
+    border-radius:20px;
+    flex-shrink:0;
+    animation:none;
+  }
+  .play-pill{ display:none; }
+}
+</style>
+</head>
+<body>
+
+<span class="spark"></span>
+<span class="spark"></span>
+<span class="spark"></span>
+<span class="spark"></span>
+<span class="spark"></span>
+
+<div class="shell">
+  <p class="museo">el trompo · Museo Interactivo Tijuana</p>
+  <h1 id="title"></h1>
+  <p class="tagline">¡Elige tu aventura y a jugar!</p>
+
+  <div class="games">
+    <a class="card trompo" href="Trompo-Pac/index.html">
+      <div class="icon">🤖</div>
+      <div class="info">
+        <h2>Trompobot</h2>
+        <p>Laberinto de ciencia. ¡Recoge chispas y escapa de los triángulos!</p>
+      </div>
+      <span class="play-pill">¡JUGAR! →</span>
+    </a>
+
+    <a class="card cube" href="cube-game-main/index.html">
+      <div class="icon">🧊</div>
+      <div class="info">
+        <h2>Cube Runner</h2>
+        <p>¡Corre, salta y junta monedas en una pista 3D!</p>
+      </div>
+      <span class="play-pill">¡JUGAR! →</span>
+    </a>
+  </div>
+
+  <p class="footer">Imagínate, aprendiendo jugando ⚡</p>
+</div>
+
+<script>
+  const COL = ['#e5083f','#0e9dae','#f7a11a','#8cc63f','#7b3fbf'];
+  const ROT = [-5,4,-3,5,-4,3,-5];
+  document.getElementById('title').innerHTML =
+    [...'JUEGOS'].map((l,i) =>
+      `<span style="color:${COL[i%5]};transform:rotate(${ROT[i]}deg)">${l}</span>`
+    ).join('');
+</script>
+</body>
+</html>s
