@@ -9,12 +9,21 @@
 <!-- Botón regresar (izquierda) -->
 <button id="back-btn" class="back-btn" aria-label="Regresar al menú" title="Regresar">←</button>
 
-<!-- Botones de esquina: pausa arriba, dash abajo -->
+<!-- Botones de esquina: pausa, dash, (easter) ira -->
 <div class="corner">
   <button id="pb" class="cbtn" aria-label="Pausar" title="Pausa (P)" disabled>❚❚</button>
   <button id="db" class="cbtn dash" aria-label="Dash" title="Dash (Shift)">
     <i class="fill" id="dfill"></i><span class="dico">⚡</span><b class="dkey">SHIFT</b>
   </button>
+  <button id="rage-btn" class="cbtn rage-btn" aria-label="¡MODO IRA!" title="¡MODO IRA!" style="display:none;">
+    <span class="dico">🔥</span><b class="dkey">IRA</b>
+  </button>
+</div>
+
+<!-- Guía de dirección (izquierda del contenedor) -->
+<div id="dir-guide" class="dir-guide" aria-hidden="true" title="Dirección actual">
+  <div class="dir-arrow" id="dir-arrow">➤</div>
+  <div class="dir-label">DIR</div>
 </div>
 
 <main class="bubble">

@@ -16,13 +16,61 @@ const DASH_COST=350,   // puntos para recargar el dash
       DASH_FRAMES=60,  // duración máxima del dash (frames)
       DASH_STEPS=3,    // pasos de 2px por frame durante el dash (~4-8x más rápido)
       DASH_GRACE=45;   // invulnerabilidad extra al terminar el dash
+// --- Easter egg: MODO IRA (1 vida + nunca usaste dash) ---
+let dashUsedThisRun=false,rageMode=false,rageT=0,rageUsed=false;
+let particles=[]; // escombros / chispas al romper paredes
+const RAGE_DURATION=18*60; // ~18 segundos de furia activa
+const RAGE_BITS=['💥','🧱','✨','💫','⭐','🔥','💢'];
+const RAGE_YUM=['¡ÑAM!','¡CRUNCH!','¡GLUP!','¡BUUUM!','¡ADIOS!','¡TUK!'];
 // Nivel 1 con más tiempo de scatter = respiro para aprender el mapa antes de que aprieten los fantasmas
 const SCHEDULE=[10,25,10,25,7,25,7,999999]; // segundos: scatter,chase,scatter,chase...
+// --- Píldoras de poder: se regeneran 20s después de comerlas todas, o al morir ---
+const POWER_RESTORE_FRAMES=20*60; // ~20 segundos a 60 ups
+const POWER_POS=[];
+for(let r=0;r<MAP.length;r++)for(let c=0;c<MAP[r].length;c++)if(MAP[r][c]==='o')POWER_POS.push([c,r]);
+let powerLeft=POWER_POS.length,powerRestoreT=0;
 
-const wall=(c,r)=>!grid[r]||grid[r][c]===undefined||grid[r][c]==='#';
+// ── Portales estilo Pac-Man (túneles izq ↔ der) ──
+// Fila del túnel (la fila abierta del medio del mapa)
+const TUNNEL_ROW = 7;
+// Portales: A (izquierda) ↔ B (derecha)
+const PORTAL_A = {c: 0,  r: TUNNEL_ROW}; // entrada/salida izquierda
+const PORTAL_B = {c: W-1, r: TUNNEL_ROW}; // entrada/salida derecha
+
+const wall=(c,r)=>{
+  // Los bordes de la fila del túnel son transitables (portales)
+  if(r === TUNNEL_ROW && (c <= 0 || c >= W-1)) return false;
+  if(c < 0 || c >= W || r < 0 || r >= H) return true;
+  return !grid[r] || grid[r][c] === undefined || grid[r][c] === '#';
+};
 // Puerta de la caja de fantasmas: como en el Pac-Man original, Trompobot no puede entrar.
 const DOOR=[13,6];
-const wallP=(c,r)=>wall(c,r)||grid[r][c]==='D';                       // muros para Trompobot (incluye la puerta)
+
+const wallP=(c,r)=>{
+  // Permitir pasar por los bordes en la fila del túnel
+  if(r === TUNNEL_ROW && (c < 0 || c >= W)) return false;
+  if(rageMode){
+    // En modo ira solo el borde exterior detiene a Trompobot (excepto túnel)
+    if(r === TUNNEL_ROW) return false;
+    return c<=0||r<=0||c>=W-1||r>=H-1||!grid[r]||grid[r][c]===undefined;
+  }
+  return wall(c,r)||(grid[r]&&grid[r][c]==='D');
+};
+
+// Teletransporte por portal (jugador o fantasma)
+function applyPortal(ent){
+  const c = (ent.x - 12) / T;
+  const r = Math.round((ent.y - 12) / T);
+  if(r !== TUNNEL_ROW) return;
+  // Si se sale por la izquierda → aparece a la derecha
+  if(c < -0.3){
+    ent.x = (W - 1) * T + 12;
+  }
+  // Si se sale por la derecha → aparece a la izquierda
+  else if(c > W - 0.7){
+    ent.x = 0 * T + 12;
+  }
+}
 const ghostNoEnter=(c,r,d)=>c===DOOR[0]&&r===DOOR[1]&&d[1]===1;        // los fantasmas salen, pero no vuelven a entrar desde arriba
 const mk=(c,r)=>({x:c*T+12,y:r*T+12,dx:0,dy:0,acc:0}); // acc: acumulador de sub-velocidad
 
@@ -76,16 +124,41 @@ function reset(){
   en=makeGhosts().map((e,i)=>{e.delay=Math.max(i===0?0:30,baseDelay[i]-(level-1)*30);return e});
   scared=0;combo=0;dashT=0;inv=0;trail=[];
   mode='scatter';modeIdx=0;modeTimer=SCHEDULE[0]*60;
+  updateDirGuide();
 }
 function load(){
   grid=MAP.map(r=>[...r].map(ch=>ch==='P'?' ':ch));
   grid[DOOR[1]][DOOR[0]]='D';
+  // Abrir los portales (quitar muros de los bordes en la fila del túnel)
+  grid[TUNNEL_ROW][0] = ' ';
+  grid[TUNNEL_ROW][W-1] = ' ';
+  // También abrir un poco más hacia adentro para que el túnel se sienta natural
+  if(grid[TUNNEL_ROW][1] === '#') grid[TUNNEL_ROW][1] = ' ';
+  if(grid[TUNNEL_ROW][W-2] === '#') grid[TUNNEL_ROW][W-2] = ' ';
   dots=grid.flat().filter(c=>c==='.'||c==='o').length;totalDots=dots;
+  powerLeft=POWER_POS.length;powerRestoreT=0;
   buildWalls();reset();
 }
+function restorePowerPellets(){
+  let n=0;
+  for(const [c,r] of POWER_POS){
+    if(grid[r][c]===' '){grid[r][c]='o';dots++;n++}
+  }
+  if(n>0){
+    powerLeft=POWER_POS.length;
+    powerRestoreT=0;
+    if(pl)popups.push({x:pl.x,y:pl.y,text:'✷ ¡Chispas de ciencia!',life:70});
+  }
+}
 function show(a,b,btn){$('ot').textContent=a;$('op').textContent=b;$('go').textContent=btn;renderLeaderboard();$('ov').classList.remove('hide')}
-function start(full){if(full){score=0;lives=3;level=1;dashProg=0;dashReady=false}setPause(false);load();hud();$('ov').classList.add('hide');run=true}
-function hud(){$('s').textContent=score;$('v').textContent='♥'.repeat(lives);$('lv').textContent=level;dashUI()}
+function start(full){
+  if(full){
+    score=0;lives=3;level=1;dashProg=0;dashReady=false;
+    dashUsedThisRun=false;rageMode=false;rageT=0;rageUsed=false;particles=[];
+  }
+  setPause(false);load();hud();$('ov').classList.add('hide');run=true;updateRageBtn();
+}
+function hud(){$('s').textContent=score;$('v').textContent='♥'.repeat(lives);$('lv').textContent=level;dashUI();updateRageBtn()}
 const al=e=>(e.x-12)%T===0&&(e.y-12)%T===0;
 
 function reverseGhosts(){en.forEach(e=>{if(e.delay<=0){e.dx=-e.dx;e.dy=-e.dy}})}
@@ -95,12 +168,16 @@ function eat(c,r){
   if(ch==='.'){addScore(10);dots--}
   else if(ch==='o'){
     addScore(50);dots--;
+    powerLeft=Math.max(0,powerLeft-1);
+    if(powerLeft===0)powerRestoreT=POWER_RESTORE_FRAMES; // regeneran en 20s
     if(scared<=0)reverseGhosts();
     scaredMax=scaredDuration();scared=scaredMax;combo=0;
   }else return;
   grid[r][c]=' ';hud();
-  if(!dots){run=false;level++;nextLevel=true;
-    show('¡Ciencia comprobada!','Recogiste todas las chispas con '+score+' puntos. El siguiente nivel es más rápido.','Siguiente nivel')}
+  if(!dots){
+    run=false;level++;lives=3;nextLevel=true; // al pasar de nivel se restauran las 3 vidas
+    powerRestoreT=0;rageMode=false;rageT=0; // el modo ira termina al completar el nivel
+    show('¡Ciencia comprobada!','Recogiste todas las chispas con '+score+' puntos. El siguiente nivel es más rápido. · Vidas restauradas!','Siguiente nivel')}
 }
 
 function updateMode(){
@@ -153,6 +230,8 @@ function stepPlayer(go){
   }
   if(pl.dx||pl.dy)face=[pl.dx,pl.dy];
   if(go){pl.x+=pl.dx*2;pl.y+=pl.dy*2}
+  applyPortal(pl);
+  updateDirGuide();
   return true;
 }
 
@@ -166,7 +245,7 @@ function addScore(n){
   dashUI();
 }
 function doDash(){
-  if(!run||isPaused||pause>0||dashT>0||!dashReady)return;
+  if(!run||isPaused||pause>0||dashT>0||!dashReady||rageMode)return;
   let d=null;
   if(pl.dx||pl.dy)d=[pl.dx,pl.dy];              // en movimiento: sigue hacia donde va
   else{                                          // detenido: usa la dirección pedida o hacia donde mira
@@ -176,7 +255,168 @@ function doDash(){
   if(!d)return;                                  // sin espacio para arrancar: no gasta la carga
   pl.dx=d[0];pl.dy=d[1];face=[d[0],d[1]];
   dashReady=false;dashProg=0;dashT=DASH_FRAMES;inv=DASH_FRAMES+DASH_GRACE;
+  dashUsedThisRun=true; // usó el dash → se pierde el easter egg
+  updateRageBtn();
   dashUI();
+}
+
+function spawnDebris(wx,wy,n=10){
+  // Partículas coloridas al romper una celda de muro
+  for(let i=0;i<n;i++){
+    const ang=Math.random()*Math.PI*2,spd=1.5+Math.random()*4;
+    particles.push({
+      x:wx,y:wy,
+      vx:Math.cos(ang)*spd,
+      vy:Math.sin(ang)*spd-1.5,
+      life:25+Math.random()*25|0,
+      max:40,
+      size:3+Math.random()*6,
+      col:COL[Math.random()*COL.length|0],
+      rot:Math.random()*6,
+      spin:(Math.random()-0.5)*0.4,
+      emoji:Math.random()<0.35?RAGE_BITS[Math.random()*RAGE_BITS.length|0]:null
+    });
+  }
+}
+
+function breakWallCell(c,r){
+  // Rompe una celda interna y suelta escombros bonitos
+  if(r<=0||r>=H-1||c<=0||c>=W-1)return false;
+  if(!grid[r]||(grid[r][c]!=='#'&&grid[r][c]!=='D'))return false;
+  grid[r][c]=' ';
+  spawnDebris(c*T+12,r*T+12,12+Math.random()*8|0);
+  return true;
+}
+
+function rageCrushNearPlayer(){
+  // Por donde pasa Trompobot furioso, el laberinto se deshace
+  const pc=Math.round((pl.x-12)/T),pr=Math.round((pl.y-12)/T);
+  let broke=false;
+  for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+    if(breakWallCell(pc+dc,pr+dr))broke=true;
+  }
+  // También “muerde” un poco más adelante en la dirección de movimiento
+  if(face[0]||face[1]){
+    if(breakWallCell(pc+face[0]*2,pr+face[1]*2))broke=true;
+    if(breakWallCell(pc+face[0],pr+face[1]))broke=true;
+  }
+  if(broke)buildWalls();
+}
+
+function activateRage(){
+  if(!run||isPaused||rageMode||rageUsed)return;
+  if(lives!==1||dashUsedThisRun)return;
+  rageMode=true;rageUsed=true;rageT=RAGE_DURATION;
+  inv=RAGE_DURATION;
+  particles=[];
+  // Explosión inicial alrededor del jugador
+  spawnDebris(pl.x,pl.y,28);
+  rageCrushNearPlayer();
+  popups.push({x:pl.x,y:pl.y-20,text:'🔥 ¡MODO IRA!',life:100});
+  popups.push({x:pl.x,y:pl.y+8,text:'¡A ROMPER TODO!',life:80});
+  updateRageBtn();
+}
+
+function updateRageBtn(){
+  const btn=document.getElementById('rage-btn');
+  if(!btn)return;
+  const show=run&&!isPaused&&lives===1&&!dashUsedThisRun&&!rageMode&&!rageUsed;
+  btn.style.display=show?'flex':'none';
+}
+
+function endRage(){
+  rageMode=false;rageT=0;
+  // Las paredes rotas se quedan; las partículas terminan solas
+  updateRageBtn();
+}
+
+function updateParticles(){
+  for(const p of particles){
+    p.x+=p.vx;p.y+=p.vy;
+    p.vy+=0.18; // gravedad suave
+    p.vx*=0.98;
+    p.rot+=p.spin;
+    p.life--;
+  }
+  particles=particles.filter(p=>p.life>0);
+}
+
+function drawPortals(){
+  // Portales visuales estilo Pac-Man en los bordes de la fila del túnel
+  const portals = [
+    {x: 12,          y: TUNNEL_ROW * T + 12, side: 'L'}, // Portal A (izquierda)
+    {x: (W-1)*T + 12, y: TUNNEL_ROW * T + 12, side: 'R'}  // Portal B (derecha)
+  ];
+  const pulse = 0.7 + 0.3 * Math.sin(t / 12);
+
+  portals.forEach((p, i) => {
+    g.save();
+    g.translate(p.x, p.y);
+
+    // Anillos concéntricos animados
+    const colors = i === 0
+      ? ['#e5083f', '#f7a11a', '#c8d414']   // A: rojo → naranja → lima
+      : ['#0e9dae', '#7b3fbf', '#8cc63f'];  // B: teal → morado → verde
+
+    for (let k = 0; k < 3; k++) {
+      const r = 7 + k * 4 + Math.sin(t / 10 + k + i) * 1.5;
+      g.globalAlpha = (0.55 - k * 0.12) * pulse;
+      g.strokeStyle = colors[k];
+      g.lineWidth = 2.5 - k * 0.4;
+      g.beginPath();
+      g.arc(0, 0, r, 0, Math.PI * 2);
+      g.stroke();
+    }
+
+    // Núcleo brillante
+    g.globalAlpha = 0.85 * pulse;
+    const grad = g.createRadialGradient(0, 0, 1, 0, 0, 8);
+    grad.addColorStop(0, '#fff');
+    grad.addColorStop(0.5, colors[0]);
+    grad.addColorStop(1, 'transparent');
+    g.fillStyle = grad;
+    g.beginPath();
+    g.arc(0, 0, 8, 0, Math.PI * 2);
+    g.fill();
+
+    // Pequeñas chispas orbitando
+    g.globalAlpha = 0.9;
+    for (let s = 0; s < 4; s++) {
+      const ang = t / 15 + s * Math.PI / 2 + i;
+      const sr = 11 + Math.sin(t / 8 + s) * 2;
+      g.fillStyle = colors[s % 3];
+      g.beginPath();
+      g.arc(Math.cos(ang) * sr, Math.sin(ang) * sr, 2.2, 0, Math.PI * 2);
+      g.fill();
+    }
+
+    g.restore();
+  });
+  g.globalAlpha = 1;
+}
+
+function drawParticles(){
+  for(const p of particles){
+    const a=Math.max(0,p.life/p.max);
+    g.save();
+    g.globalAlpha=a;
+    g.translate(p.x,p.y);
+    g.rotate(p.rot);
+    if(p.emoji){
+      g.font=(p.size*2.2|0)+'px serif';
+      g.textAlign='center';g.textBaseline='middle';
+      g.fillText(p.emoji,0,0);
+    }else{
+      g.fillStyle=p.col;
+      g.fillRect(-p.size/2,-p.size/2,p.size,p.size);
+      // brillo
+      g.globalAlpha=a*0.5;
+      g.fillStyle='#fff';
+      g.fillRect(-p.size/4,-p.size/4,p.size/2,p.size/2);
+    }
+    g.restore();
+  }
+  g.globalAlpha=1;
 }
 function endDash(){dashT=0;inv=DASH_GRACE;dashUI()}
 const pbBtn=$('pb'),dbBtn=$('db'),dFill=$('dfill');
@@ -193,6 +433,7 @@ function setPause(v){
   if(v&&!run)return;
   isPaused=v;$('pz').classList.toggle('hide',!v);
   pbBtn.textContent=v?'▶':'❚❚';pbBtn.setAttribute('aria-label',v?'Continuar':'Pausar');
+  updateRageBtn();
 }
 
 function upd(){
@@ -202,6 +443,27 @@ function upd(){
   trail.forEach(a=>a.life--);trail=trail.filter(a=>a.life>0);
   if(inv>0)inv--;
   if(scared>0)scared--;
+  // Regenerar píldoras de poder 20s después de comerlas todas
+  if(powerRestoreT>0){powerRestoreT--;if(powerRestoreT<=0)restorePowerPellets()}
+  // Partículas de escombros (siguen aunque termine la ira)
+  updateParticles();
+  // Modo ira: destruir muros al pasar + aspirar chispas + cuenta regresiva
+  if(rageMode){
+    if(rageT>0){rageT--;if(rageT<=0)endRage()}
+    rageCrushNearPlayer();
+    // “Devora” puntos en un radio amplio
+    const pc=Math.round((pl.x-12)/T),pr=Math.round((pl.y-12)/T);
+    for(let dr=-2;dr<=2;dr++)for(let dc=-2;dc<=2;dc++){
+      const c=pc+dc,r=pr+dr;
+      if(r>0&&r<H-1&&c>0&&c<W-1&&(grid[r][c]==='.'||grid[r][c]==='o')){
+        // chispa de puntuación chistosa
+        if(grid[r][c]==='o')popups.push({x:c*T+12,y:r*T+12,text:'✷ ÑAM',life:35});
+        eat(c,r);
+      }
+    }
+    // rastros de fuego mientras camina
+    if(t%3===0)spawnDebris(pl.x-(face[0]||0)*8,pl.y-(face[1]||0)*8,2);
+  }
   updateMode();
 
   // --- Movimiento de Pac-Man: siempre pasos enteros de 2px, la velocidad se logra saltando frames ---
@@ -241,16 +503,26 @@ function upd(){
     const mul=scared>0?baseGhostMul*0.5:(e.elroy===2?baseGhostMul*1.15:baseGhostMul);
     e.acc+=mul;
     if(e.acc>=1){e.acc-=1;e.x+=e.dx*2;e.y+=e.dy*2;}
-    if(Math.hypot(e.x-pl.x,e.y-pl.y)<16){
-      if(scared>0&&e.delay<=0&&!e.eaten){
-        const pts=[200,400,800,1600][Math.min(combo,3)];
-        addScore(pts);combo++;hud();
-        popups.push({x:e.x,y:e.y,text:'+'+pts,life:40});
+    applyPortal(e);
+    if(Math.hypot(e.x-pl.x,e.y-pl.y)<(rageMode?32:16)){
+      if((scared>0||rageMode)&&e.delay<=0&&!e.eaten){
+        const pts=rageMode?500:[200,400,800,1600][Math.min(combo,3)];
+        addScore(pts);if(!rageMode)combo++;hud();
+        if(rageMode){
+          const yum=RAGE_YUM[Math.random()*RAGE_YUM.length|0];
+          popups.push({x:e.x,y:e.y-8,text:yum,life:45});
+          popups.push({x:e.x,y:e.y+10,text:'+'+pts+' 🔥',life:40});
+          spawnDebris(e.x,e.y,18); // el fantasma “explota” en partículas
+        }else{
+          popups.push({x:e.x,y:e.y,text:'+'+pts,life:40});
+        }
         e.eaten=true;
-        Object.assign(e,mk(e.home[0],e.home[1]),{delay:150,eaten:false});
-      }else if(scared<=0&&inv<=0){
+        Object.assign(e,mk(e.home[0],e.home[1]),{delay:rageMode?100:150,eaten:false});
+      }else if(scared<=0&&inv<=0&&!rageMode){
         lives--;hud();
         if(lives<=0){gameOver();return}
+        // Al morir: si ya te comiste todas las píldoras de poder, se regeneran
+        if(powerLeft===0)restorePowerPellets();
         reset();pause=70;return;
       }
     }
@@ -258,7 +530,35 @@ function upd(){
 }
 
 function bot(x,y,f,open){
-  g.save();g.translate(x,y);g.lineWidth=2;g.strokeStyle='#17211f';
+  g.save();g.translate(x,y);
+  if(rageMode){
+    // Trompobot ENORME y furioso
+    const shake=(Math.random()-0.5)*3;
+    g.translate(shake,shake);
+    g.scale(1.85,1.85);
+    // sombra / impacto
+    g.globalAlpha=0.2;g.fillStyle='#000';g.beginPath();g.ellipse(0,14,14,5,0,0,7);g.fill();g.globalAlpha=1;
+    g.lineWidth=2.5;g.strokeStyle='#3a0000';
+    g.fillStyle='#ff2222';for(const s of[-1,1]){g.beginPath();g.arc(s*13,-1,3.5,0,7);g.fill();g.stroke()}
+    g.beginPath();g.moveTo(-4,-9);g.lineTo(-4,-14);g.quadraticCurveTo(0,-19,4,-14);g.lineTo(4,-9);g.closePath();g.fill();g.stroke();
+    g.fillStyle='#ffcc00';g.beginPath();g.moveTo(-10,-7);g.quadraticCurveTo(0,-14,10,-7);g.lineTo(12,9);g.quadraticCurveTo(0,14,-12,9);g.closePath();g.fill();g.stroke();
+    g.fillStyle='#ff6666';g.beginPath();g.roundRect(-12,-6,24,11,4);g.fill();g.stroke();
+    for(const s of[-1,1]){
+      g.fillStyle='#fff';g.beginPath();g.ellipse(s*4.5,-1,4.5,5.5,0,0,7);g.fill();g.stroke();
+      g.fillStyle='#8b0000';g.beginPath();g.ellipse(s*4.5+f[0]*2,-1+f[1]*2,2.2,3,0,0,7);g.fill();
+      g.strokeStyle='#3a0000';g.lineWidth=2.5;g.beginPath();g.moveTo(s*1.5,-8);g.lineTo(s*9,-4.5);g.stroke();
+    }
+    // boca abierta tipo “¡voy a comerme todo!”
+    g.fillStyle='#3a0000';g.beginPath();g.ellipse(0,7,7,open?5:3.5,0,0,7);g.fill();
+    g.fillStyle='#ff4466';g.beginPath();g.ellipse(0,8,4,open?2.5:1.5,0,0,7);g.fill();
+    // anillos de aura
+    g.globalAlpha=0.25+0.2*Math.sin(t/3);
+    g.strokeStyle='#ff6600';g.lineWidth=4;g.beginPath();g.arc(0,0,22+Math.sin(t/4)*4,0,7);g.stroke();
+    g.strokeStyle='#ffcc00';g.lineWidth=2;g.beginPath();g.arc(0,0,28+Math.cos(t/5)*3,0,7);g.stroke();
+    g.globalAlpha=1;
+    g.restore();return;
+  }
+  g.lineWidth=2;g.strokeStyle='#17211f';
   g.fillStyle='#5f3a9a';for(const s of[-1,1]){g.beginPath();g.arc(s*13,-1,3,0,7);g.fill();g.stroke()}
   g.beginPath();g.moveTo(-4,-9);g.lineTo(-4,-13);g.quadraticCurveTo(0,-17,4,-13);g.lineTo(4,-9);g.closePath();g.fill();g.stroke();
   g.fillStyle='#c8d414';g.beginPath();g.moveTo(-9,-7);g.quadraticCurveTo(0,-13,9,-7);g.lineTo(11,8);g.quadraticCurveTo(0,13,-11,8);g.closePath();g.fill();g.stroke();
@@ -282,22 +582,36 @@ function draw(){
   g.fillStyle='#fffdf7';g.fillRect(0,0,W*T,H*T);g.strokeStyle='#d5e6f2';g.lineWidth=1;
   for(let y=12;y<H*T;y+=12){g.beginPath();g.moveTo(0,y+.5);g.lineTo(W*T,y+.5);g.stroke()}
   g.drawImage(walls,0,0);
-  // puerta de la caja de fantasmas
-  g.strokeStyle='#f7a11a';g.lineWidth=5;g.lineCap='round';g.beginPath();g.moveTo(DOOR[0]*T+4,DOOR[1]*T+12);g.lineTo(DOOR[0]*T+T-4,DOOR[1]*T+12);g.stroke();
+  // puerta de la caja de fantasmas (solo si no está rota)
+  if(grid[DOOR[1]]&&grid[DOOR[1]][DOOR[0]]==='D'){
+    g.strokeStyle='#f7a11a';g.lineWidth=5;g.lineCap='round';g.beginPath();g.moveTo(DOOR[0]*T+4,DOOR[1]*T+12);g.lineTo(DOOR[0]*T+T-4,DOOR[1]*T+12);g.stroke();
+  }
+  // ── Dibujar portales (túneles A ↔ B) ──
+  drawPortals();
   for(let r=0;r<H;r++)for(let c=0;c<W;c++){
     const ch=grid[r][c],x=c*T,y=r*T;
     if(ch==='.'){g.fillStyle=COL[(c*3+r)%5];g.beginPath();g.arc(x+12,y+12,3.2,0,7);g.fill()}
     else if(ch==='o'){g.save();g.translate(x+12,y+12);g.rotate(t/30);g.strokeStyle='#0e9dae';g.lineWidth=2.5;g.lineCap='round';
       for(let k=0;k<8;k++){g.rotate(Math.PI/4);g.beginPath();g.moveTo(3,0);g.lineTo(8+(k%2)*2,0);g.stroke()}g.restore()}
   }
+  // escombros / partículas detrás del personaje
+  drawParticles();
   en.forEach(foe);
   trail.forEach(a=>{g.globalAlpha=a.life/12*.35;bot(a.x,a.y,a.f,false)});g.globalAlpha=1;
-  if(dashReady&&run){g.strokeStyle='#c8d414';g.lineWidth=2.5;g.globalAlpha=.55+.3*Math.sin(t/6);g.beginPath();g.arc(pl.x,pl.y,18,0,7);g.stroke();g.globalAlpha=1}
-  const blink=inv>0&&dashT<=0&&(t>>2)%2; // parpadeo al terminar el dash
+  if(dashReady&&run&&!rageMode){g.strokeStyle='#c8d414';g.lineWidth=2.5;g.globalAlpha=.55+.3*Math.sin(t/6);g.beginPath();g.arc(pl.x,pl.y,18,0,7);g.stroke();g.globalAlpha=1}
+  const blink=inv>0&&dashT<=0&&!rageMode&&(t>>2)%2;
   if(!(pause&&(pause>>3)%2)&&!blink)bot(pl.x,pl.y,face,(pl.dx||pl.dy)&&(t>>3)%2);
-  g.font='bold 14px Fredoka, sans-serif';g.textAlign='center';g.fillStyle='#4f2688';
+  // popups más grandes en modo ira
+  g.font=(rageMode?'bold 18px':'bold 14px')+' Fredoka, sans-serif';g.textAlign='center';g.fillStyle=rageMode?'#c62828':'#4f2688';
   popups.forEach(p=>{g.globalAlpha=Math.min(1,p.life/20);g.fillText(p.text,p.x,p.y-10-(40-p.life)*0.5);});
   g.globalAlpha=1;
+  // indicador de tiempo de ira
+  if(rageMode&&rageT>0){
+    const pct=rageT/RAGE_DURATION;
+    g.fillStyle='#0006';g.fillRect(pl.x-22,pl.y-38,44,6);
+    g.fillStyle='#ff6600';g.fillRect(pl.x-22,pl.y-38,44*pct,6);
+    g.strokeStyle='#fff';g.lineWidth=1;g.strokeRect(pl.x-22,pl.y-38,44,6);
+  }
 }
 
 let last=0,acc=0;
@@ -312,6 +626,26 @@ function setDir(k){
   if(!pl||isPaused)return;pl.wd=DK[k];
   if(dashT>0)return; // en dash no se invierte
   if((pl.dx||pl.dy)&&pl.wd[0]===-pl.dx&&pl.wd[1]===-pl.dy){pl.dx=pl.wd[0];pl.dy=pl.wd[1]}
+  updateDirGuide(); // actualizar flecha de guía al pedir dirección
+}
+
+// Guía de dirección (flecha a la izquierda del contenedor)
+function updateDirGuide(){
+  const el=document.getElementById('dir-guide');
+  if(!el)return;
+  // Prioridad: dirección actual de movimiento, si no la pedida, si no face
+  let d=null;
+  if(pl&&(pl.dx||pl.dy))d=[pl.dx,pl.dy];
+  else if(pl&&pl.wd)d=pl.wd;
+  else d=face;
+  let key='';
+  if(d){
+    if(d[0]===1)key='r';
+    else if(d[0]===-1)key='l';
+    else if(d[1]===-1)key='u';
+    else if(d[1]===1)key='d';
+  }
+  el.dataset.dir=key;
 }
 const KM={ArrowLeft:'l',ArrowRight:'r',ArrowUp:'u',ArrowDown:'d',a:'l',d:'r',w:'u',s:'d'};
 addEventListener('keydown',e=>{
@@ -324,6 +658,8 @@ addEventListener('keydown',e=>{
 pbBtn.addEventListener('click',()=>{setPause(!isPaused);pbBtn.blur()});
 $('resume').addEventListener('click',()=>setPause(false));
 dbBtn.addEventListener('click',()=>{doDash();dbBtn.blur()});
+const rageBtn=document.getElementById('rage-btn');
+if(rageBtn)rageBtn.addEventListener('click',()=>{activateRage();rageBtn.blur()});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)setPause(true)}); // auto-pausa al cambiar de pestaña
 document.querySelectorAll('.pad button').forEach(b=>b.addEventListener('pointerdown',e=>{e.preventDefault();setDir(b.dataset.d)}));
 let sx,sy;
@@ -572,3 +908,6 @@ function goToMenu(){
 if(backBtn) backBtn.addEventListener('click', showBackConfirm);
 if(bcYes) bcYes.addEventListener('click', goToMenu);
 if(bcNo) bcNo.addEventListener('click', hideBackConfirm);
+
+// Inicializar flecha de dirección
+updateDirGuide();

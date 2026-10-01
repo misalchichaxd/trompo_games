@@ -69,7 +69,7 @@ scene.add(fillLight);
 const GROUND_Y   = -0.5;
 const LANE_W     = 2.2;
 const LANES      = [-LANE_W, 0, LANE_W];
-const GROUND_LEN = 80;
+const GROUND_LEN = 120;
 
 (function makeGround() {
   const totalW = LANE_W * 2 + 1.5;
@@ -97,19 +97,53 @@ const GROUND_LEN = 80;
   }
 })();
 
+let stars = null;
 (function makeStars() {
   const verts = [];
   for (let i = 0; i < 900; i++)
     verts.push((Math.random()-0.5)*120, Math.random()*28+2, -Math.random()*70);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-  scene.add(new THREE.Points(geo, new THREE.PointsMaterial({ color:0xfff4d6, size:0.07, transparent:true, opacity:0.7 })));
+  stars = new THREE.Points(geo, new THREE.PointsMaterial({ color:0xfff4d6, size:0.07, transparent:true, opacity:0.7 }));
+  scene.add(stars);
 })();
 
 const PLAYER_SIZE    = 0.72;
 const PLAYER_FLOOR_Y = GROUND_Y + PLAYER_SIZE / 2;
 
-const playerGeo = new THREE.BoxGeometry(PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE);
+const BALL_R = 0.40;   // radio de la esfera en la que se transforma el cubo
+// Caja subdividida: se interpolan sus vértices entre "cubo" y "esfera" (cubo → bola) por CPU
+const playerGeo = new THREE.BoxGeometry(PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE, 12, 12, 12);
+const ballBasePos = playerGeo.attributes.position.array.slice();
+const ballBaseNor = playerGeo.attributes.normal.array.slice();
+const ballTgtPos  = new Float32Array(ballBasePos.length);
+const ballTgtNor  = new Float32Array(ballBasePos.length);
+(function initBallTargets() {
+  const v = new THREE.Vector3();
+  for (let i = 0; i < ballBasePos.length; i += 3) {
+    v.set(ballBasePos[i], ballBasePos[i+1], ballBasePos[i+2]).normalize();
+    ballTgtNor[i] = v.x; ballTgtNor[i+1] = v.y; ballTgtNor[i+2] = v.z;
+    ballTgtPos[i] = v.x * BALL_R; ballTgtPos[i+1] = v.y * BALL_R; ballTgtPos[i+2] = v.z * BALL_R;
+  }
+})();
+let ballMorph = 0;
+function applyBallMorph(m) {
+  if (m === ballMorph) return;
+  ballMorph = m;
+  const p = playerGeo.attributes.position.array, n = playerGeo.attributes.normal.array;
+  for (let i = 0; i < p.length; i += 3) {
+    p[i]   = ballBasePos[i]   + (ballTgtPos[i]   - ballBasePos[i])   * m;
+    p[i+1] = ballBasePos[i+1] + (ballTgtPos[i+1] - ballBasePos[i+1]) * m;
+    p[i+2] = ballBasePos[i+2] + (ballTgtPos[i+2] - ballBasePos[i+2]) * m;
+    const nx = ballBaseNor[i]   + (ballTgtNor[i]   - ballBaseNor[i])   * m;
+    const ny = ballBaseNor[i+1] + (ballTgtNor[i+1] - ballBaseNor[i+1]) * m;
+    const nz = ballBaseNor[i+2] + (ballTgtNor[i+2] - ballBaseNor[i+2]) * m;
+    const l = Math.hypot(nx, ny, nz) || 1;
+    n[i] = nx / l; n[i+1] = ny / l; n[i+2] = nz / l;
+  }
+  playerGeo.attributes.position.needsUpdate = true;
+  playerGeo.attributes.normal.needsUpdate   = true;
+}
 const playerMat = new THREE.MeshLambertMaterial({ color: 0xc8d414, emissive: 0x6a7a00, emissiveIntensity: 0.45 });
 const player    = new THREE.Mesh(playerGeo, playerMat);
 player.castShadow = true;
@@ -399,197 +433,240 @@ updateBestFromStorage();
 renderLeaderboard();
 
 // ── Secuencia de riel cinematográfico (cada 500 pts) ────
-// Un solo riel central épico: rampa → loop vertical tipo Sonic
-// → bajada natural. Orientación con Frenet frames.
-const RAIL_INTERVAL   = 500;
-const RAIL_DURATION   = 320;   // ~5.3s cuerpo principal (más épico)
-const RAIL_ENTER_DUR  = 55;    // ~0.9s entrada suave
-const RAIL_EXIT_DUR   = 60;    // ~1.0s salida fluida
+// 1) rail_approach: se limpian obstáculos, el cubo se centra solo y el riel LLEGA desde el fondo
+//    (entre la niebla) igual que el resto del mundo. El cubo se transforma en esfera.
+// 2) rail: la esfera entra al riel (tubo de cristal) y recorre rampa → loop → bajada. Sin control.
+// 3) rail_exit: sale por el otro lado, vuelve a ser cubo, SIGUE ADELANTE y solo la cámara regresa.
+const RAIL_INTERVAL      = 500;
+const RAIL_SPEED         = 0.22;  // velocidad dentro del riel (unidades/frame)
+const RAIL_APPROACH_DIST = 48;    // a qué distancia (en la niebla) nace el riel
+const RAIL_MORPH_DIST    = 14;    // cuando la boca del riel está a esta distancia empieza el cubo→esfera
+const RAIL_EXIT_DUR      = 80;    // frames de salida
+const RAIL_TUBE_R        = 0.6;
+const RAIL_FLOOR_Y       = GROUND_Y + 0.1 + RAIL_TUBE_R;  // el tubo descansa sobre el piso
+const PLAYER_START_Z     = 6;
 
 let nextRailScore = RAIL_INTERVAL;
-let mode = 'run'; // 'run' | 'rail_enter' | 'rail' | 'rail_exit'
-let railT = 0;
+let mode = 'run'; // 'run' | 'rail_approach' | 'rail' | 'rail_exit'
+let railT = 0;          // 0..1 (solo salida)
+let railDist = 0;       // distancia recorrida dentro del riel
+let railLen = 1;
+let railGap = 0;        // distancia entre la boca del riel y el cubo (durante la llegada)
+let railSpd = 0.3;
 let railMesh = null;
 let railCurve = null;
-let railFrames = null;   // { tangents, normals, binormals }
-let railEnterFrom = new THREE.Vector3();
-let railExitTo   = new THREE.Vector3();
-let camEnterFrom = new THREE.Vector3();
+let railFrames = null;  // ya no se usa; se deja para que resetGame() no truene
+let railInfo = null;    // { cy, cz, dLoopStart, dLoopEnd }
 let railGlowLight = null;
 
+const camLook       = new THREE.Vector3(0, 0.5, 0);
+const camExitOff    = new THREE.Vector3();
+const lookExitOff   = new THREE.Vector3();
+const exitQ0        = new THREE.Quaternion();
+// Offsets de la cámara NORMAL relativos al jugador (jugador z=6, cámara (0,4,10) mira a (0,0.5,0))
+const CAM_OFF_RUN   = new THREE.Vector3(0, 4.0 - PLAYER_FLOOR_Y, 4);
+const LOOK_OFF_RUN  = new THREE.Vector3(0, 0.5 - PLAYER_FLOOR_Y, -6);
+
+const RAIL_SIDE = new THREE.Vector3(1, 0, 0);
+const _tan = new THREE.Vector3(), _up = new THREE.Vector3(), _zA = new THREE.Vector3(), _xA = new THREE.Vector3();
+const _m = new THREE.Matrix4(), _rp = new THREE.Vector3(), _rq = new THREE.Quaternion();
+const _camPos = new THREE.Vector3(), _camLookT = new THREE.Vector3(), _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3();
+const _qIdent = new THREE.Quaternion();
+
+// Colores cubo ↔ esfera (la esfera brilla como el riel para "integrarse" a él)
+const CUBE_COL = new THREE.Color(0xc8d414), CUBE_EM = new THREE.Color(0x6a7a00);
+const BALL_COL = new THREE.Color(0xfffbe0), BALL_EM = new THREE.Color(0xffd040);
+
+// Cámara cinematográfica de la llegada: se acomoda para que se vea cómo la esfera entra al riel
+const CAM_RUN_POS   = new THREE.Vector3(0, 4.0, 10),  CAM_RUN_LOOK   = new THREE.Vector3(0, 0.5, 0);
+const CAM_APPR_POS  = new THREE.Vector3(3.0, 3.4, 13.5), CAM_APPR_LOOK = new THREE.Vector3(0, 0.7, 3);
+
+const clamp01 = x => Math.min(1, Math.max(0, x));
+const smooth  = t => t * t * (3 - 2 * t);
 function easeInOutCubic(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
-function easeOutCubic(t) {
-  return 1 - Math.pow(1 - t, 3);
-}
-function easeInOutSine(t) {
-  return -(Math.cos(Math.PI * t) - 1) / 2;
+function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+function easeInOutSine(t) { return -(Math.cos(Math.PI * t) - 1) / 2; }
+
+/** m = 0 → cubo normal · m = 1 → esfera luminosa */
+function setBallMorph(m) {
+  applyBallMorph(m);
+  playerMat.color.copy(CUBE_COL).lerp(BALL_COL, m);
+  playerMat.emissive.copy(CUBE_EM).lerp(BALL_EM, m);
+  playerMat.emissiveIntensity = 0.45 + 1.0 * m;
 }
 
 /**
- * Construye un riel épico y continuo:
- * 1. Rampa de subida suave y larga
- * 2. Loop vertical completo (360°) tipo Sonic, bien formado
- * 3. Bajada elegante de regreso al suelo
- * Todo centrado en X=0. Usa muchos puntos + CatmullRom de alta calidad.
+ * Riel (tubo de cristal): rampa → tramo recto → LOOP → tramo recto → bajada.
+ * Se construye en coordenadas locales con la boca en z = PLAYER_START_Z; durante la llegada
+ * se mueve con mesh.position.z y al "enganchar" queda quieto (offset 0).
  */
-/**
- * Riel limpio y épico (sin enredos):
- * 1. Rampa de despegue
- * 2. Tramo elevado corto
- * 3. UN loop vertical circular claro (tipo Sonic)
- * 4. Bajada al camino
- */
-function buildRailVisual(startZ) {
+function buildRailVisual() {
+  const R = 4.5, riseLen = 10, approach = 4, exitFlat = 4, downLen = 10;
+  const XO = 0.9;                       // desplazamiento lateral del loop (que la salida no cruce la entrada)
+  const startZ  = PLAYER_START_Z;
+  const floor   = RAIL_FLOOR_Y;
+  const bottomY = floor + 1.2;
+  const cy = bottomY + R;
+  const z1 = startZ - riseLen;
+  const cz = z1 - approach;
+  const z2 = cz - exitFlat;
+
+  const segs = [
+    { n: 22,  f: u => [0, floor + smooth(u) * (bottomY - floor), startZ - u * riseLen] },
+    { n: 12,  f: u => [-XO * smooth(u), bottomY, z1 - u * approach] },
+    { n: 100, f: u => { const a = u * Math.PI * 2;
+                        return [-XO + 2 * XO * u, cy - R * Math.cos(a), cz - R * Math.sin(a)]; } },
+    { n: 12,  f: u => [XO * (1 - smooth(u)), bottomY, cz - u * exitFlat] },
+    { n: 22,  f: u => [0, bottomY + (floor - bottomY) * smooth(u), z2 - u * downLen] },
+  ];
+
   const pts = [];
-  const N = 180;
+  segs.forEach(s => { for (let i = 0; i < s.n; i++) { const p = s.f(i / s.n); pts.push(new THREE.Vector3(p[0], p[1], p[2])); } });
+  const last = segs[segs.length - 1].f(1);
+  pts.push(new THREE.Vector3(last[0], last[1], last[2]));
 
-  const R = 4.5;          // radio del loop
-  const riseLen = 10;     // largo de la rampa de subida
-  const approach = 3;     // tramo recto elevado antes del loop
-  const exitFlat = 3;     // tramo recto elevado después del loop
-  const downLen = 10;     // rampa de bajada
-  const floor = PLAYER_FLOOR_Y;
-
-  // El loop es un círculo en el plano YZ.
-  // Entrada/salida abajo: y = floor + (elevación), centro en y = floor + elev + R
-  // Elevamos el loop para que quede en el aire.
-  const elev = 1.2;       // altura del punto más bajo del loop sobre el suelo
-  const cy = floor + elev + R;
-  const bottomY = floor + elev;
-
-  const z0 = startZ;
-  const zRiseEnd = z0 - riseLen;
-  const zApproachEnd = zRiseEnd - approach;
-  // Centro del loop en Z: la entrada está en z = cz (bottom, cos term)
-  // Usamos ángulo de -PI/2 (abajo) → 3PI/2 (abajo otra vez, pasando por atrás, arriba, adelante)
-  const cz = zApproachEnd;
-  const zLoopEnd = cz; // misma Z geométrica al salir del círculo
-  const zExitEnd = zLoopEnd - exitFlat;
-  const zDownEnd = zExitEnd - downLen;
-
-  for (let i = 0; i <= N; i++) {
-    const t = i / N;
-    let x = 0, y, z;
-
-    if (t < 0.20) {
-      // 1. Rampa de subida (suelo → altura del loop)
-      const u = t / 0.20;
-      const e = easeInOutSine(u);
-      y = floor + e * (bottomY - floor);
-      z = z0 - u * riseLen;
-    } else if (t < 0.28) {
-      // 2. Tramo recto elevado (aproxima al loop)
-      const u = (t - 0.20) / 0.08;
-      y = bottomY;
-      z = zRiseEnd - u * approach;
-    } else if (t < 0.72) {
-      // 3. LOOP CIRCULAR VERTICAL (una vuelta limpia)
-      // ángulo: -PI/2 (abajo) → 3PI/2 (abajo), sentido: atrás → arriba → adelante → abajo
-      const u = (t - 0.28) / 0.44;
-      const angle = -Math.PI / 2 + u * Math.PI * 2;
-      y = cy + Math.sin(angle) * R;
-      z = cz + Math.cos(angle) * R;
-      x = 0;
-    } else if (t < 0.80) {
-      // 4. Tramo recto elevado de salida
-      const u = (t - 0.72) / 0.08;
-      y = bottomY;
-      z = zLoopEnd - u * exitFlat;
-    } else {
-      // 5. Bajada al suelo
-      const u = (t - 0.80) / 0.20;
-      const e = easeOutCubic(u);
-      y = bottomY + (floor - bottomY) * e;
-      z = zExitEnd - u * downLen;
-    }
-
-    pts.push(new THREE.Vector3(x, y, z));
-  }
-
-  const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.15);
+  const M = pts.length;
+  const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+  curve.arcLengthDivisions = (M - 1) * 4;
+  const lengths = curve.getLengths();
   railCurve = curve;
-  railFrames = curve.computeFrenetFrames(N, false);
+  railLen   = lengths[lengths.length - 1];
+  railInfo  = {
+    cy, cz,
+    dLoopStart: lengths[(segs[0].n + segs[1].n) * 4],
+    dLoopEnd:   lengths[(segs[0].n + segs[1].n + segs[2].n) * 4],
+  };
 
-  const geo = new THREE.TubeGeometry(curve, 240, 0.26, 12, false);
+  // Tubo translúcido: se ve la esfera viajando por dentro
+  const geo = new THREE.TubeGeometry(curve, 360, RAIL_TUBE_R, 16, false);
   const mat = new THREE.MeshLambertMaterial({
-    color: 0xffb020,
-    emissive: 0xff6a00,
-    emissiveIntensity: 1.35
+    color: 0xff9a1a, emissive: 0xff6a00, emissiveIntensity: 1.1,
+    transparent: true, opacity: 0.30, side: THREE.DoubleSide, depthWrite: false
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = true;
+
+  // Aros brillantes en la boca de entrada y en la de salida
+  const ringGeo = new THREE.TorusGeometry(RAIL_TUBE_R, 0.07, 8, 28);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xffd060 });
+  [0, 1].forEach(u => {
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.position.copy(curve.getPointAt(u));
+    mesh.add(ring);
+  });
   scene.add(mesh);
 
   if (railGlowLight) scene.remove(railGlowLight);
-  railGlowLight = new THREE.PointLight(0xff9a1a, 2.8, 18);
+  railGlowLight = new THREE.PointLight(0xff9a1a, 0, 18);
   scene.add(railGlowLight);
-
   return mesh;
 }
 
-function startRailEnter() {
-  mode = 'rail_enter';
+/** Pose de la esfera a distancia d dentro del riel (por el centro del tubo). El "arriba" es
+ *  perpendicular a la tangente en el plano YZ → sin flips ni torceduras. */
+function railPose(d, outPos, outQuat) {
+  const u = clamp01(d / railLen);
+  outPos.copy(railCurve.getPointAt(u));              // longitud de arco → velocidad constante
+  _tan.copy(railCurve.getTangentAt(u)).normalize();
+  _up.crossVectors(RAIL_SIDE, _tan).normalize();
+  _zA.copy(_tan).negate();
+  _xA.crossVectors(_up, _zA);
+  _m.makeBasis(_xA, _up, _zA);
+  outQuat.setFromRotationMatrix(_m);
+}
+
+/** Cámara del riel: sigue por detrás y, durante el loop, se abre para encuadrar el aro completo. */
+function railCamTargets(pos, d) {
+  const a = railInfo;
+  const f = smooth(clamp01((d - (a.dLoopStart - 7)) / 9)) *
+            (1 - smooth(clamp01((d - (a.dLoopEnd - 2)) / 9)));
+  _camPos.set(3.4, Math.max(3.2, pos.y * 0.35 + 3.0), pos.z + 8);
+  _camLookT.set(pos.x, pos.y + 0.5, pos.z - 1.5);
+  if (f > 0) {
+    _v1.set(5.0, a.cy + 0.3, a.cz + 15);
+    _v2.set(0, a.cy - 0.3, a.cz).lerp(pos, 0.3);
+    _camPos.lerp(_v1, f);
+    _camLookT.lerp(_v2, f);
+  }
+}
+
+// Estrellas y luz de relleno acompañan a la cámara (en juego normal quedan igual que antes)
+function followWorld() {
+  if (stars) stars.position.z = camera.position.z - 10;
+  fillLight.position.z = camera.position.z - 6;
+}
+
+/** Los objetos que ya estaban en pantalla se encogen y desaparecen (sin cortes bruscos) */
+function fadeOutList(list, dt) {
+  for (let i = list.length - 1; i >= 0; i--) {
+    const it = list[i];
+    it.mesh.position.z += speed * dt;
+    const s = Math.max(0, it.mesh.scale.x - 0.06 * dt);
+    it.mesh.scale.setScalar(s);
+    if (s <= 0.02 || it.mesh.position.z > 14) { scene.remove(it.mesh); list.splice(i, 1); }
+  }
+}
+
+function startRailApproach() {
+  mode = 'rail_approach';
   railT = 0;
 
-  // Forzar al jugador al centro
+  // Se fuerza el carril central: el cubo se desliza solo al centro
   currentLane = 1;
   targetX = LANES[1];
 
-  railEnterFrom.copy(player.position);
-  camEnterFrom.copy(camera.position);
-
-  // El riel nace un poco delante del jugador
-  const startZ = player.position.z - 4;
-
-  // Limpiar obstáculos, monedas y decoraciones
-  obstacles.forEach(o => scene.remove(o.mesh)); obstacles.length = 0;
-  decors.forEach(d => scene.remove(d.mesh)); decors.length = 0;
-  coinsArr.forEach(c => scene.remove(c.mesh)); coinsArr.length = 0;
+  railGap = RAIL_APPROACH_DIST;
+  railSpd = Math.min(0.38, Math.max(0.25, speed));
+  camLook.set(0, 0.5, 0);
 
   if (railMesh) { scene.remove(railMesh); railMesh = null; }
-  railMesh = buildRailVisual(startZ);
-
-  // Boost visual del jugador durante la secuencia
-  playerMat.emissiveIntensity = 0.95;
+  railMesh = buildRailVisual();
+  railMesh.position.z = -railGap;        // nace lejos, escondido en la niebla
 }
 
 function startRail() {
   mode = 'rail';
-  railT = 0;
+  railDist = 0;
+  railMesh.position.z = 0;               // el riel queda fijo en el mundo
+  setBallMorph(1);
+  isJumping = false; jumpVY = 0;
+  player.position.set(0, RAIL_FLOOR_Y, PLAYER_START_Z);
 }
 
 function startRailExit() {
   mode = 'rail_exit';
   railT = 0;
-
   currentLane = 1;
   targetX = LANES[1];
-  railExitTo.set(0, PLAYER_FLOOR_Y, 6);
+  exitQ0.copy(player.quaternion);
+  // La cámara guarda su posición RELATIVA al cubo para regresar sin saltos
+  camExitOff.copy(camera.position).sub(player.position);
+  lookExitOff.copy(camLook).sub(player.position);
 }
 
 function endRail() {
   if (railMesh) {
     scene.remove(railMesh);
+    railMesh.traverse(o => { if (o.geometry) o.geometry.dispose(); });
     railMesh = null;
   }
-  if (railGlowLight) {
-    scene.remove(railGlowLight);
-    railGlowLight = null;
-  }
+  if (railGlowLight) { scene.remove(railGlowLight); railGlowLight = null; }
   railCurve = null;
   railFrames = null;
+  railInfo = null;
   mode = 'run';
+  setBallMorph(0);
 
-  // Restaurar glow normal del jugador
-  playerMat.emissiveIntensity = 0.45;
-
-  player.position.set(0, PLAYER_FLOOR_Y, 6);
+  // El cubo NO retrocede: ya está en su relación normal con la cámara. Solo se recoloca el
+  // conjunto cubo+cámara a z=6 / z=10 (el piso es uniforme y las estrellas siguen a la cámara).
+  player.position.set(0, PLAYER_FLOOR_Y, PLAYER_START_Z);
   player.rotation.set(0, 0, 0);
   player.quaternion.identity();
   camera.position.set(0, 4.0, 10);
   camera.lookAt(0, 0.5, 0);
+  followWorld();
 }
 
 let currentLane  = 1;
@@ -765,7 +842,7 @@ let wasAliveBeforeBack = false;
 
 function showBackConfirm() {
   wasAliveBeforeBack = alive;
-  alive = false; // pausa el juego
+  alive = false; // pausa el juego (también durante el riel)
   if (backConfirm) backConfirm.style.display = 'flex';
 }
 
@@ -811,7 +888,7 @@ function resetGame() {
   if (railGlowLight) { scene.remove(railGlowLight); railGlowLight = null; }
   railCurve = null;
   railFrames = null;
-  playerMat.emissiveIntensity = 0.45;
+  setBallMorph(0);
 
   player.position.set(LANES[1], PLAYER_FLOOR_Y, 6);
   player.rotation.set(0, 0, 0);
@@ -821,6 +898,7 @@ function resetGame() {
 
   camera.position.set(0, 4.0, 10);
   camera.lookAt(0, 0.5, 0);
+  followWorld();
 
   scEl.textContent = '0';
   overlay.style.display = 'none';
@@ -857,6 +935,28 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// Movimiento lateral + inclinación + salto (se usa en juego normal y mientras el cubo se centra)
+function updatePlayerMotion(dt) {
+  const lerpF = 1 - Math.pow(1 - LANE_SPEED, dt);
+  player.position.x += (targetX - player.position.x) * lerpF;
+
+  const lateralDiff = targetX - player.position.x;
+  const tiltTarget  = -lateralDiff * 0.38;
+  player.rotation.z += (tiltTarget - player.rotation.z) * lerpF;
+
+  if (isJumping) {
+    player.position.y += jumpVY * dt;
+    jumpVY -= GRAVITY * dt;
+    player.rotation.x += JUMP_ROT_SPEED * dt;
+    if (player.position.y <= PLAYER_FLOOR_Y) {
+      player.position.y = PLAYER_FLOOR_Y;
+      player.rotation.x = Math.round(player.rotation.x / (Math.PI / 2)) * (Math.PI / 2);
+      isJumping = false;
+      jumpVY    = 0;
+    }
+  }
+}
+
 let lastTime = 0;
 function animate(timestamp) {
   requestAnimationFrame(animate);
@@ -869,142 +969,97 @@ function animate(timestamp) {
   //  SECUENCIA CINEMATOGRÁFICA — UN SOLO RIEL CENTRAL
   // ═══════════════════════════════════════════════════════════
 
-  if (mode === 'rail_enter') {
-    railT += dt / RAIL_ENTER_DUR;
-    const t = Math.min(railT, 1);
-    const e = easeInOutCubic(t);
+  if (mode === 'rail_approach') {
+    updatePlayerMotion(dt);                // se centra solo (y termina un salto si venía en el aire)
+    fadeOutList(obstacles, dt);
+    fadeOutList(coinsArr, dt);
+    fadeOutList(decors, dt);
 
-    // Llevar al jugador al inicio del riel (suelo, centro)
-    const startPos = railCurve.getPoint(0);
-    player.position.lerpVectors(railEnterFrom, startPos, e);
+    // El riel llega hacia el cubo como el resto del mundo
+    railGap -= railSpd * dt;
+    const g = Math.max(railGap, 0);
+    railMesh.position.z = -g;
 
-    // Orientación suave hacia la tangente del riel
-    const tangent = railCurve.getTangent(0).normalize();
-    const lookTarget = player.position.clone().add(tangent);
-    const m = new THREE.Matrix4();
-    m.lookAt(player.position, lookTarget, new THREE.Vector3(0, 1, 0));
-    const q = new THREE.Quaternion().setFromRotationMatrix(m);
-    player.quaternion.slerp(q, e * 0.85);
+    // Cubo → esfera mientras la boca del riel se acerca
+    const m = smooth(clamp01(1 - g / RAIL_MORPH_DIST));
+    setBallMorph(m);
+    if (!isJumping) player.position.y = THREE.MathUtils.lerp(PLAYER_FLOOR_Y, RAIL_FLOOR_Y, m);
 
-    // Cámara se acerca y se centra un poco
-    const camTarget = new THREE.Vector3(4.2, 4.2, player.position.z + 7.5);
-    camera.position.lerpVectors(camEnterFrom, camTarget, e);
-    camera.lookAt(player.position.x, player.position.y + 0.5, player.position.z);
+    // Cámara: del encuadre normal al encuadre de entrada
+    const cA = smooth(clamp01(1 - g / 26));
+    camera.position.lerpVectors(CAM_RUN_POS, CAM_APPR_POS, cA);
+    camLook.lerpVectors(CAM_RUN_LOOK, CAM_APPR_LOOK, cA);
+    camera.lookAt(camLook);
+    followWorld();
 
     playerGlow.position.copy(player.position);
-    playerGlow.position.y += 0.6;
+    playerGlow.position.y += 0.7;
     if (railGlowLight) {
-      railGlowLight.position.copy(startPos);
-      railGlowLight.position.y += 1.5;
+      railGlowLight.position.set(0, 1.5, PLAYER_START_Z - g);
+      railGlowLight.intensity = 2.8 * smooth(clamp01(1 - g / 30));
     }
+    fillLight.position.x = Math.sin(timestamp * 0.0005) * 6;
 
-    if (t >= 1) startRail();
+    if (railGap <= 0) startRail();         // la esfera entra al riel
     renderer.render(scene, camera);
     return;
   }
 
   if (mode === 'rail') {
-    railT += dt / RAIL_DURATION;
-    if (railT >= 1) {
-      startRailExit();
+    // la velocidad de llegada se suaviza hasta la del riel (sin tirón)
+    railSpd += (RAIL_SPEED - railSpd) * (1 - Math.pow(1 - 0.03, dt));
+    railDist += railSpd * dt;
+    if (railDist >= railLen) {
+      startRailExit();                     // sigue al bloque rail_exit en este mismo frame
     } else {
-      const t = railT;
-      const pos = railCurve.getPoint(t);
-      player.position.copy(pos);
+      railPose(railDist, _rp, _rq);
+      player.position.copy(_rp);
+      player.quaternion.copy(_rq);
 
-      // ── Orientación EPICA con Frenet frames ──
-      // Esto evita el flip horrible cuando el cubo va invertido
-      if (railFrames) {
-        const N = railFrames.tangents.length - 1;
-        const idx = Math.min(Math.floor(t * N), N - 1);
-        const frac = (t * N) - idx;
+      railCamTargets(_rp, railDist);
+      camera.position.lerp(_camPos, 1 - Math.pow(1 - 0.10, dt));
+      camLook.lerp(_camLookT, 1 - Math.pow(1 - 0.14, dt));
+      camera.lookAt(camLook);
 
-        // Interpolar frames entre dos muestras
-        const tan  = railFrames.tangents[idx].clone().lerp(railFrames.tangents[Math.min(idx + 1, N)], frac).normalize();
-        const norm = railFrames.normals[idx].clone().lerp(railFrames.normals[Math.min(idx + 1, N)], frac).normalize();
-        const bin  = railFrames.binormals[idx].clone().lerp(railFrames.binormals[Math.min(idx + 1, N)], frac).normalize();
-
-        // Construir matriz de orientación: el cubo "camina" sobre el riel
-        // X = binormal, Y = normal (hacia afuera del loop), Z = tangent (adelante)
-        const m = new THREE.Matrix4();
-        m.makeBasis(bin, norm, tan);
-        player.quaternion.setFromRotationMatrix(m);
-      } else {
-        // Fallback
-        const tangent = railCurve.getTangent(t).normalize();
-        const lookTarget = pos.clone().add(tangent);
-        const m = new THREE.Matrix4();
-        m.lookAt(pos, lookTarget, new THREE.Vector3(0, 1, 0));
-        player.quaternion.setFromRotationMatrix(m);
-      }
-
-      // Spin extra del trompo (suave, no rompe la orientación)
-      player.rotateOnAxis(new THREE.Vector3(0, 0, 1), 0.18 * dt);
-
-      // ── Cámara cinematográfica dramática ──
-      // Más cerca, sigue la altura del loop, y gira un poco alrededor
-      // Cámara estable y cinematográfica (sigue al cubo sin marear)
-      const heightFactor = Math.max(0, (pos.y - PLAYER_FLOOR_Y) / 10);
-      const camX = 4.5 + Math.sin(t * Math.PI) * 1.2;
-      const camY = 3.5 + heightFactor * 4.0;
-      const camZ = pos.z + 7.0;
-
-      camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.14);
-      camera.lookAt(pos.x, pos.y + 0.5, pos.z);
-
-      // Glow y luz del riel siguen al jugador
       playerGlow.position.copy(player.position);
       playerGlow.position.y += 0.55;
       if (railGlowLight) {
-        railGlowLight.position.copy(pos);
+        railGlowLight.position.copy(_rp);
         railGlowLight.position.y += 1.2;
-        railGlowLight.intensity = 2.2 + Math.sin(t * Math.PI * 4) * 0.9;
+        railGlowLight.intensity = 2.2 + Math.sin((railDist / railLen) * Math.PI * 4) * 0.9;
       }
 
+      followWorld();
       renderer.render(scene, camera);
       return;
     }
   }
 
   if (mode === 'rail_exit') {
-    // El cubo aterriza suavemente del final del riel al camino
+    // La esfera sale del riel, vuelve a ser cubo y SIGUE ADELANTE (-Z). Solo la cámara regresa.
     railT += dt / RAIL_EXIT_DUR;
     const t = Math.min(railT, 1);
     const e = easeInOutCubic(t);
+    const mo = smooth(clamp01(t * 2));     // la transformación ocurre en la primera mitad
 
-    const lastPos = railCurve.getPoint(1);
+    player.position.z -= railSpd * dt;
+    player.position.x  = 0;
+    player.position.y  = THREE.MathUtils.lerp(RAIL_FLOOR_Y, PLAYER_FLOOR_Y, mo);
+    player.quaternion.copy(exitQ0).slerp(_qIdent, e);
+    setBallMorph(1 - mo);
 
-    // Caída con arco natural (como si saltara del riel al suelo)
-    const baseY = THREE.MathUtils.lerp(lastPos.y, PLAYER_FLOOR_Y, e);
-    const arc   = Math.sin(t * Math.PI) * 1.6 * (1 - e * 0.7);
-    player.position.x = THREE.MathUtils.lerp(lastPos.x, 0, e);
-    player.position.z = THREE.MathUtils.lerp(lastPos.z, 6, e);
-    player.position.y = baseY + arc;
-
-    // En los últimos frames forzamos el suelo limpio
-    if (t > 0.78) {
-      player.position.y = THREE.MathUtils.lerp(player.position.y, PLAYER_FLOOR_Y, (t - 0.78) / 0.22);
-    }
-
-    // Rotación vuelve a normal de forma fluida
-    const qIdentity = new THREE.Quaternion();
-    player.quaternion.slerp(qIdentity, e * 0.9);
-
-    // Cámara vuelve a la posición normal con suavidad
-    const camNormal = new THREE.Vector3(0, 4.0, 10);
-    camera.position.lerp(camNormal, 0.07 + e * 0.14);
-    camera.lookAt(
-      THREE.MathUtils.lerp(player.position.x, 0, e),
-      THREE.MathUtils.lerp(player.position.y, 0.5, e),
-      THREE.MathUtils.lerp(player.position.z, 0, e)
-    );
+    // Cámara: misma posición relativa al cubo → se mezcla hacia el offset normal de juego
+    _v1.lerpVectors(camExitOff, CAM_OFF_RUN, e);
+    camera.position.copy(player.position).add(_v1);
+    _v2.lerpVectors(lookExitOff, LOOK_OFF_RUN, e);
+    camLook.copy(player.position).add(_v2);
+    camera.lookAt(camLook);
 
     playerGlow.position.copy(player.position);
     playerGlow.position.y += 0.6;
-    if (railGlowLight) {
-      railGlowLight.intensity = 2.8 * (1 - e);
-    }
+    if (railGlowLight) railGlowLight.intensity = 2.8 * (1 - e);
 
+    followWorld();
     if (t >= 1) endRail();
     renderer.render(scene, camera);
     return;
@@ -1013,7 +1068,7 @@ function animate(timestamp) {
   // ── Disparador cada 500 puntos ────────────────────────
   if (mode === 'run' && score >= nextRailScore) {
     nextRailScore += RAIL_INTERVAL;
-    startRailEnter();
+    startRailApproach();
     renderer.render(scene, camera);
     return;
   }
@@ -1027,26 +1082,7 @@ function animate(timestamp) {
   speed         = 0.14 + score * 0.00035;
   spawnInterval = Math.max(36, 70 - score * 0.09);
 
-  // Movimiento lateral
-  const lerpF = 1 - Math.pow(1 - LANE_SPEED, dt);
-  player.position.x += (targetX - player.position.x) * lerpF;
-
-  const lateralDiff = targetX - player.position.x;
-  const tiltTarget  = -lateralDiff * 0.38;
-  player.rotation.z += (tiltTarget - player.rotation.z) * lerpF;
-
-  // Salto
-  if (isJumping) {
-    player.position.y += jumpVY * dt;
-    jumpVY -= GRAVITY * dt;
-    player.rotation.x += JUMP_ROT_SPEED * dt;
-    if (player.position.y <= PLAYER_FLOOR_Y) {
-      player.position.y = PLAYER_FLOOR_Y;
-      player.rotation.x = Math.round(player.rotation.x / (Math.PI / 2)) * (Math.PI / 2);
-      isJumping = false;
-      jumpVY    = 0;
-    }
-  }
+  updatePlayerMotion(dt);
 
   // Spawn
   spawnTimer += dt;

@@ -1,8 +1,58 @@
 :root{--purple:#7b3fbf;--deep:#4f2688;--lime:#c8d414;--red:#e5083f;--teal:#0e9dae;--orange:#f7a11a;--paper:#fffdf7;--ink:#17211f;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 *{box-sizing:border-box}
-body{margin:0;background:var(--purple);font-family:'Fredoka','Trebuchet MS',sans-serif;color:var(--deep);min-height:100vh;display:flex;justify-content:center;align-items:center;padding:10px}
+body{margin:0;background:var(--purple);font-family:'Fredoka','Trebuchet MS',sans-serif;color:var(--deep);min-height:100vh;display:flex;justify-content:center;align-items:center;padding:10px;gap:14px}
 .bubble{background:var(--paper);border-radius:38px;padding:12px 20px 18px;max-width:1000px;width:100%;text-align:center;box-shadow:0 0 0 6px #fff3,0 8px 0 var(--deep)}
+
+/* ── Guía de dirección (izquierda del contenedor) ── */
+.dir-guide{
+  flex-shrink:0;
+  width:64px;
+  height:64px;
+  border-radius:20px;
+  background:var(--deep);
+  border:3px solid #fff;
+  box-shadow:0 4px 0 #2a1050;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:2px;
+  z-index:15;
+  user-select:none;
+  pointer-events:none; /* solo es guía visual, no bloquea el touch */
+}
+.dir-arrow{
+  font-size:28px;
+  line-height:1;
+  color:#fff;
+  transition:transform .18s ease;
+  text-shadow:0 2px 0 #0004;
+}
+.dir-label{
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:1px;
+  color:var(--lime);
+  opacity:.9;
+}
+/* Rotaciones según dirección */
+.dir-guide[data-dir="r"] .dir-arrow{transform:rotate(0deg)}
+.dir-guide[data-dir="d"] .dir-arrow{transform:rotate(90deg)}
+.dir-guide[data-dir="l"] .dir-arrow{transform:rotate(180deg)}
+.dir-guide[data-dir="u"] .dir-arrow{transform:rotate(-90deg)}
+.dir-guide[data-dir=""] .dir-arrow{opacity:.35}
+
+@media(max-width:720px){
+  .dir-guide{width:52px;height:52px;border-radius:16px}
+  .dir-arrow{font-size:22px}
+  .dir-label{font-size:9px}
+}
+@media(max-width:480px){
+  body{gap:8px;padding-left:6px}
+  .dir-guide{width:44px;height:44px}
+  .dir-arrow{font-size:18px}
+}
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .museo{margin:0;font-weight:700;font-size:15px;color:var(--purple);flex:1 1 200px;text-align:left}
 h1{margin:0;font-size:clamp(30px,6vw,50px);line-height:1;letter-spacing:1px;flex:1 1 300px}
@@ -152,3 +202,20 @@ small{display:block;margin-top:8px;color:var(--purple);font-size:13px}
   width:min(260px,80vw);
 }
 .bc-btns .ne-btn{width:100%;min-height:56px}
+
+/* ── Easter egg: botón IRA ── */
+.rage-btn{
+  background:#8b0000 !important;
+  border-color:#ff4444 !important;
+  animation:ragePulse .7s ease-in-out infinite;
+}
+.rage-btn .dico{font-size:22px;line-height:1}
+.rage-btn .dkey{font-size:9px;letter-spacing:.5px;color:#ffcccc;margin-top:2px}
+@keyframes ragePulse{
+  0%,100%{box-shadow:0 4px 0 #4a0000,0 0 0 0 #ff444488;transform:scale(1)}
+  50%{box-shadow:0 4px 0 #4a0000,0 0 12px 4px #ff444466;transform:scale(1.06)}
+}
+.rage-btn:active{
+  transform:translateY(3px) scale(0.96) !important;
+  box-shadow:0 1px 0 #4a0000 !important;
+}

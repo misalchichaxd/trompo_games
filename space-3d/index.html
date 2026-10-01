@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nova 2.5D · Galaga minimalista</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="c" aria-label="Nova, juego de naves en 2.5D"></canvas>
+
+<div id="hud">
+  <div class="stat"><span>Puntos</span><b id="sc">0</b></div>
+  <div class="stat"><span>Récord</span><b id="bs">0</b></div>
+  <div class="stat"><span>Etapa</span><b id="st">1</b></div>
+  <div class="stat"><span>Casco</span><b id="lv" class="lives"></b></div>
+</div>
+<button id="fs" aria-label="Pantalla completa" title="Pantalla completa (F)">⛶</button>
+<div id="bn"></div>
+
+<div id="ov" class="ov">
+  <h1 id="ot">Nova</h1>
+  <p id="op">Defiende el vacío. Dispara, esquiva las picadas y limpia cada etapa.</p>
+  <button id="go">Jugar</button>
+  <small>Mover: ← → o A D · Disparar: espacio · Pausa: P · Pantalla completa: F<br>En celular: arrastra el dedo, dispara solo</small>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
