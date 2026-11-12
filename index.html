@@ -65,7 +65,7 @@ body::before{
   background:var(--paper);
   border-radius:42px;
   padding:clamp(20px,3vw,36px) clamp(18px,3vw,40px) clamp(22px,3vw,36px);
-  max-width:920px;
+  max-width:1040px;
   width:100%;
   text-align:center;
   box-shadow:0 0 0 7px #fff4,0 12px 0 var(--deep),0 22px 50px #0005;
@@ -98,7 +98,7 @@ h1 span{
 }
 .games{
   display:grid;
-  grid-template-columns:1fr 1fr;
+  grid-template-columns:repeat(3,1fr);
   gap:clamp(14px,2.5vw,22px);
 }
 .card{
@@ -150,6 +150,7 @@ h1 span{
 }
 .card.trompo .icon{ background:linear-gradient(145deg, #12b8c9, var(--teal)); }
 .card.cube .icon{ background:linear-gradient(145deg, #ffb84a, var(--orange)); animation-delay:0.35s; }
+.card.nova .icon{ background:linear-gradient(145deg, #9b5fd9, var(--deep)); animation-delay:0.7s; }
 @keyframes bounce{
   0%,100%{transform:translateY(0)}
   50%{transform:translateY(-8px)}
@@ -184,6 +185,7 @@ h1 span{
 }
 .card.trompo .play-pill{ background:var(--lime); box-shadow:0 4px 0 #8a9200; }
 .card.cube  .play-pill{ background:var(--orange); box-shadow:0 4px 0 #b87000; }
+.card.nova  .play-pill{ background:#ff6b9d; box-shadow:0 4px 0 #b83b68; }
 .footer{
   margin-top:clamp(16px,2.5vw,24px);
   font-size:clamp(12px,1.6vw,14px);
@@ -199,7 +201,7 @@ h1 span{
   .card:hover .icon{ animation-duration:1.2s; }
   .card:hover .play-pill{ transform:scale(1.06); }
 }
-@media (max-width:560px){
+@media (max-width:760px){
   .games{ grid-template-columns:1fr; gap:14px; }
   .card{
     min-height:160px;
@@ -252,6 +254,15 @@ h1 span{
       </div>
       <span class="play-pill">¡JUGAR! →</span>
     </a>
+
+    <a class="card nova" href="space-3d/index.html">
+      <div class="icon">🚀</div>
+      <div class="info">
+        <h2>Nova</h2>
+        <p>¡Defiende el espacio! Dispara a las naves y limpia cada etapa.</p>
+      </div>
+      <span class="play-pill">¡JUGAR! →</span>
+    </a>
   </div>
 
   <p class="footer">Imagínate, aprendiendo jugando ⚡</p>
@@ -266,4 +277,4 @@ h1 span{
     ).join('');
 </script>
 </body>
-</html>s
+</html>

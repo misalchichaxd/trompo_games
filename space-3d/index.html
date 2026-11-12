@@ -9,6 +9,10 @@
 <body>
 <canvas id="c" aria-label="Nova, juego de naves en 2.5D"></canvas>
 
+<button id="bk" class="hb" aria-label="Regresar al menú" title="Regresar">←</button>
+<button id="auto" class="sw" role="switch" aria-checked="false" title="Disparo automático (T)"><i></i>AUTO</button>
+<button id="pb" class="hb" aria-label="Pausa" title="Pausa (P)" hidden>⏸</button>
+
 <div id="hud">
   <div class="stat"><span>Puntos</span><b id="sc">0</b></div>
   <div class="stat"><span>Récord</span><b id="bs">0</b></div>
@@ -17,12 +21,58 @@
 </div>
 <button id="fs" aria-label="Pantalla completa" title="Pantalla completa (F)">⛶</button>
 <div id="bn"></div>
+<div id="fl"></div>
+<div id="wf"></div>
+<div id="ctp" class="cbar"></div><div id="cbt" class="cbar"></div>
+<button id="sk" hidden>Saltar ▸</button>
+<button id="lz" aria-label="Láser" title="Láser (Q)" hidden><span id="lzi">⚡</span><b id="lzt">LÁSER</b><i id="lzn"></i></button>
+<button id="fy" aria-label="Modo furia" title="Modo furia (E)" hidden><span>🔥</span>FURIA</button>
 
 <div id="ov" class="ov">
   <h1 id="ot">Nova</h1>
   <p id="op">Defiende el vacío. Dispara, esquiva las picadas y limpia cada etapa.</p>
+  <div id="leaderboard" class="leaderboard">
+    <div class="lb-title">★ TOP 5 ★</div>
+    <ol id="lb-list"></ol>
+  </div>
   <button id="go">Jugar</button>
-  <small>Mover: ← → o A D · Disparar: espacio · Pausa: P · Pantalla completa: F<br>En celular: arrastra el dedo, dispara solo</small>
+  <small>Mover: ← → o A D · Disparar: espacio · Pausa: P · Pantalla completa: F<br>Modo furia: E o el botón 🔥 (aparece cuando te queda 1 casco)<br>Láser: Q o el botón ⚡ (1 carga cada 1500 puntos; tras usarlo se sobrecalienta 10 s)<br>Disparo automático: T o el interruptor AUTO<br>Cruz verde: +1 casco, pero ya no tendrás modo furia<br>Cada 5 etapas hay una cinemática (puedes saltarla)<br>En celular: arrastra el dedo, dispara solo</small>
+</div>
+
+<!-- Entrada de nombre (TOP 5) -->
+<div id="name-entry" class="ov hide" role="dialog" aria-modal="true" aria-labelledby="ne-t">
+  <div class="ne-title" id="ne-t">¡NUEVO RÉCORD!</div>
+  <div class="ne-score" id="ne-score">0</div>
+  <div class="ne-rank" id="ne-rank">#1</div>
+  <div class="ne-label">Escribe tu nombre</div>
+
+  <div class="ne-chars-row">
+    <div class="ne-chars" id="ne-chars"></div>
+    <button class="ne-add" id="ne-add" aria-label="Agregar letra">+</button>
+    <button class="ne-add ne-remove" id="ne-remove" aria-label="Quitar letra" style="display:none;">−</button>
+  </div>
+
+  <div class="ne-controls">
+    <button class="ne-btn" id="ne-left" aria-label="Anterior">◀</button>
+    <button class="ne-btn ne-btn-ok" id="ne-next">SIGUIENTE</button>
+    <button class="ne-btn" id="ne-right" aria-label="Siguiente">▶</button>
+  </div>
+
+  <button class="ne-btn ne-btn-save" id="ne-save" style="display:none;">✓ GUARDAR</button>
+  <button class="ne-btn ne-btn-skip" id="ne-skip">OMITIR</button>
+
+  <div class="ne-warn">⚠ Si el nombre contiene groserías, el récord será eliminado.</div>
+  <div class="ne-hint">Toca ◀ ▶ para cambiar letra · + para alargar (máx. 10)<br>Teclado: ← → letra · Enter siguiente</div>
+</div>
+
+<!-- Confirmar regreso al menú -->
+<div id="bc" class="ov hide" role="dialog" aria-modal="true" aria-labelledby="bc-t">
+  <h2 id="bc-t">¿Salir del juego?</h2>
+  <p>Volverás al menú de juegos.<br>Tu partida actual se perderá.</p>
+  <div class="bcb-row">
+    <button id="bc-yes" class="bcb">✓ Sí, salir</button>
+    <button id="bc-no" class="bcb alt">✗ Seguir jugando</button>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
