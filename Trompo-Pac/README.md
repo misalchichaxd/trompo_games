@@ -26,7 +26,7 @@ Aprende jugando, gira el laberinto y supera tu récord.
 | **Shift** | **Dash** (velocidad extra + invulnerabilidad breve) |
 | **P** | Pausar / Continuar |
 | **Botones en pantalla** | Controles táctiles (móvil) |
-| **Deslizar el dedo** | Mover (recomendado en horizontal) |
+| **Deslizar el dedo** (en cualquier parte de la pantalla) | Mover. Puedes encadenar giros sin despegar el dedo |
 
 ### Objetivo
 - Recoge **todas las chispas** del laberinto para pasar de nivel.
@@ -84,7 +84,10 @@ Trompo-Pac/
 - Modos **scatter / chase** con cronograma por nivel
 - Velocidades escalonadas (tutorial → fácil → normal → difícil)
 - Sistema de **dash** con recarga por puntos e invulnerabilidad
-- Controles de teclado + botones táctiles + swipe
+- Controles de teclado + botones táctiles grandes + swipe continuo en toda la pantalla
+- Giros con tolerancia (si pides el giro un poco tarde, igual gira)
+- Layout que se ajusta solo a la pantalla (sin scroll) en horizontal y vertical
+- Render nítido en pantallas retina con bajada automática de resolución en equipos lentos
 - Leaderboard local (localStorage) con filtro de nombres
 - Responsive y friendly con safe-area (móviles)
 

@@ -30,11 +30,31 @@ let W = wrapper.clientWidth, H = wrapper.clientHeight;
 canvas.width  = W;
 canvas.height = H;
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+// ── Calidad gráfica adaptable ─────────────────────────────
+// 0 = mínima · 1 = baja (iPad viejos) · 2 = media · 3 = alta (PC, igual que antes)
+// Se puede forzar con la URL:  index.html?q=1   (0 a 3)
+const QUALITY = [
+  { pr: 0.75, shadows: 0, fill: false, stars: 300, tube: [150, 8]  },
+  { pr: 1,    shadows: 0, fill: true,  stars: 450, tube: [200, 10] },
+  { pr: 1.5,  shadows: 1, fill: true,  stars: 900, tube: [360, 16] },
+  { pr: 2,    shadows: 2, fill: true,  stars: 900, tube: [360, 16] },
+];
+const _q       = parseInt(new URLSearchParams(location.search).get('q'), 10);
+const _isTouch = (navigator.maxTouchPoints || 0) > 0;
+const _cores   = navigator.hardwareConcurrency || 4;
+const _mem     = navigator.deviceMemory || 4;
+const START_TIER = (_q >= 0 && _q <= 3) ? _q
+                 : _isTouch ? ((_cores <= 2 || _mem <= 2) ? 1 : 2)
+                 : 3;
+let qualityTier = START_TIER;
+
+const renderer = new THREE.WebGLRenderer({
+  canvas, antialias: START_TIER >= 2, alpha: false, stencil: false, powerPreference: 'high-performance'
+});
 renderer.setSize(W, H);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = QUALITY[START_TIER].shadows > 0;
+renderer.shadowMap.type    = QUALITY[START_TIER].shadows === 2 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY[START_TIER].pr));
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x2a1a4a);
@@ -457,7 +477,8 @@ let railMesh = null;
 let railCurve = null;
 let railFrames = null;  // ya no se usa; se deja para que resetGame() no truene
 let railInfo = null;    // { cy, cz, dLoopStart, dLoopEnd }
-let railGlowLight = null;
+const railGlowLight = new THREE.PointLight(0xff9a1a, 0, 18);   // permanente: no se agrega/quita en pleno juego
+scene.add(railGlowLight);
 
 const camLook       = new THREE.Vector3(0, 0.5, 0);
 const camExitOff    = new THREE.Vector3();
@@ -540,27 +561,20 @@ function buildRailVisual() {
   };
 
   // Tubo translúcido: se ve la esfera viajando por dentro
-  const geo = new THREE.TubeGeometry(curve, 360, RAIL_TUBE_R, 16, false);
-  const mat = new THREE.MeshLambertMaterial({
-    color: 0xff9a1a, emissive: 0xff6a00, emissiveIntensity: 1.1,
-    transparent: true, opacity: 0.30, side: THREE.DoubleSide, depthWrite: false
-  });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.castShadow = true;
+  const [tubSeg, radSeg] = QUALITY[qualityTier].tube;
+  const geo = new THREE.TubeGeometry(curve, tubSeg, RAIL_TUBE_R, radSeg, false);
+  const mesh = new THREE.Mesh(geo, RAIL_MAT);
+  mesh.castShadow = QUALITY[qualityTier].shadows > 0;
 
   // Aros brillantes en la boca de entrada y en la de salida
-  const ringGeo = new THREE.TorusGeometry(RAIL_TUBE_R, 0.07, 8, 28);
-  const ringMat = new THREE.MeshBasicMaterial({ color: 0xffd060 });
   [0, 1].forEach(u => {
-    const ring = new THREE.Mesh(ringGeo, ringMat);
+    const ring = new THREE.Mesh(RING_GEO, RING_MAT);
     ring.position.copy(curve.getPointAt(u));
     mesh.add(ring);
   });
   scene.add(mesh);
 
-  if (railGlowLight) scene.remove(railGlowLight);
-  railGlowLight = new THREE.PointLight(0xff9a1a, 0, 18);
-  scene.add(railGlowLight);
+  railGlowLight.intensity = 0;
   return mesh;
 }
 
@@ -602,11 +616,19 @@ function followWorld() {
 function fadeOutList(list, dt) {
   for (let i = list.length - 1; i >= 0; i--) {
     const it = list[i];
+    if (!it.base) { it.base = it.mesh.scale.clone(); it.fade = 1; }
     it.mesh.position.z += speed * dt;
-    const s = Math.max(0, it.mesh.scale.x - 0.06 * dt);
-    it.mesh.scale.setScalar(s);
-    if (s <= 0.02 || it.mesh.position.z > 14) { scene.remove(it.mesh); list.splice(i, 1); }
+    it.fade = Math.max(0, it.fade - 0.06 * dt);
+    it.mesh.scale.copy(it.base).multiplyScalar(it.fade);
+    if (it.fade <= 0.02 || it.mesh.position.z > 14) { scene.remove(it.mesh); list.splice(i, 1); }
   }
+}
+
+function disposeRail() {
+  if (!railMesh) return;
+  scene.remove(railMesh);
+  railMesh.geometry.dispose();          // el material y los aros son compartidos: no se liberan
+  railMesh = null;
 }
 
 function startRailApproach() {
@@ -621,7 +643,7 @@ function startRailApproach() {
   railSpd = Math.min(0.38, Math.max(0.25, speed));
   camLook.set(0, 0.5, 0);
 
-  if (railMesh) { scene.remove(railMesh); railMesh = null; }
+  disposeRail();
   railMesh = buildRailVisual();
   railMesh.position.z = -railGap;        // nace lejos, escondido en la niebla
 }
@@ -647,12 +669,8 @@ function startRailExit() {
 }
 
 function endRail() {
-  if (railMesh) {
-    scene.remove(railMesh);
-    railMesh.traverse(o => { if (o.geometry) o.geometry.dispose(); });
-    railMesh = null;
-  }
-  if (railGlowLight) { scene.remove(railGlowLight); railGlowLight = null; }
+  disposeRail();
+  railGlowLight.intensity = 0;
   railCurve = null;
   railFrames = null;
   railInfo = null;
@@ -687,6 +705,20 @@ const obstacleMats = [
   new THREE.MeshLambertMaterial({ color: 0x7b3fbf, emissive: 0x2d1b5f, emissiveIntensity: 0.5 }),
 ];
 
+// Compartidos: antes se creaba una geometría/material nuevo por cada obstáculo, moneda y poste
+// y nunca se liberaban → la memoria de la GPU crecía y el iPad iba cada vez peor.
+const OBS_GEO   = new THREE.BoxGeometry(1, 1, 1);
+const COIN_GEO  = new THREE.OctahedronGeometry(0.28);
+const COIN_MAT  = new THREE.MeshLambertMaterial({ color: 0xffd24a, emissive: 0xff9a00, emissiveIntensity: 1.1 });
+const DECOR_GEO = new THREE.CylinderGeometry(0.08, 0.13, 1.5, 7);
+const DECOR_MAT = new THREE.MeshLambertMaterial({ color: 0x4f2688, emissive: 0x2d1b5f, emissiveIntensity: 0.35 });
+const RAIL_MAT  = new THREE.MeshLambertMaterial({
+  color: 0xff9a1a, emissive: 0xff6a00, emissiveIntensity: 1.1,
+  transparent: true, opacity: 0.30, side: THREE.DoubleSide, depthWrite: false
+});
+const RING_GEO  = new THREE.TorusGeometry(RAIL_TUBE_R, 0.07, 8, 28);
+const RING_MAT  = new THREE.MeshBasicMaterial({ color: 0xffd060 });
+
 function spawnObstacle() {
   const numBlocked = Math.random() < 0.25 ? 2 : 1;
   const pool = [0, 1, 2];
@@ -698,8 +730,8 @@ function spawnObstacle() {
   const h   = 0.55 + Math.random() * 0.85;
   const w   = 0.55 + Math.random() * 0.35;
   pool.slice(0, numBlocked).forEach(lane => {
-    const geo  = new THREE.BoxGeometry(w, h, w);
-    const mesh = new THREE.Mesh(geo, mat);
+    const mesh = new THREE.Mesh(OBS_GEO, mat);
+    mesh.scale.set(w, h, w);
     mesh.castShadow = mesh.receiveShadow = true;
     mesh.position.set(LANES[lane], GROUND_Y + h / 2, -26);
     scene.add(mesh);
@@ -711,13 +743,7 @@ const decors = [];
 function spawnCoin() {
   // Monedas en un carril aleatorio (a la altura del jugador)
   const lane = Math.floor(Math.random() * 3);
-  const geo = new THREE.OctahedronGeometry(0.28);
-  const mat = new THREE.MeshLambertMaterial({
-    color: 0xffd24a,
-    emissive: 0xff9a00,
-    emissiveIntensity: 1.1
-  });
-  const mesh = new THREE.Mesh(geo, mat);
+  const mesh = new THREE.Mesh(COIN_GEO, COIN_MAT);
   mesh.castShadow = true;
   mesh.position.set(LANES[lane], PLAYER_FLOOR_Y + 0.15, -26);
   scene.add(mesh);
@@ -727,9 +753,7 @@ function spawnCoin() {
 function spawnDecor() {
   // Solo postes decorativos a los lados (las monedas van aparte)
   const side  = Math.random() < 0.5 ? -LANE_W - 1.1 : LANE_W + 1.1;
-  const geo = new THREE.CylinderGeometry(0.08, 0.13, 1.5, 7);
-  const mat = new THREE.MeshLambertMaterial({ color: 0x4f2688, emissive: 0x2d1b5f, emissiveIntensity: 0.35 });
-  const mesh = new THREE.Mesh(geo, mat);
+  const mesh = new THREE.Mesh(DECOR_GEO, DECOR_MAT);
   mesh.position.set(side, GROUND_Y + 0.75, -26);
   scene.add(mesh);
   decors.push({ mesh, isGem: false });
@@ -884,8 +908,8 @@ function resetGame() {
   currentLane = 1;
   targetX     = LANES[1];
   mode = 'run'; nextRailScore = RAIL_INTERVAL;
-  if (railMesh) { scene.remove(railMesh); railMesh = null; }
-  if (railGlowLight) { scene.remove(railGlowLight); railGlowLight = null; }
+  disposeRail();
+  railGlowLight.intensity = 0;
   railCurve = null;
   railFrames = null;
   setBallMorph(0);
@@ -957,13 +981,73 @@ function updatePlayerMotion(dt) {
   }
 }
 
-let lastTime = 0;
+// ── Aplicar nivel de calidad ─────────────────────────────
+const ALL_MATS = [playerMat, ...obstacleMats, COIN_MAT, DECOR_MAT, RAIL_MAT, RING_MAT];
+
+// Mallas ocultas (fuera de cámara) con todos los materiales: así los shaders se compilan al
+// iniciar y no en pleno juego (la primera moneda / el primer riel ya no provocan tirones).
+const warmGroup = new THREE.Group();
+warmGroup.position.y = -200;
+[...obstacleMats, COIN_MAT, DECOR_MAT, RAIL_MAT, RING_MAT].forEach(m => warmGroup.add(new THREE.Mesh(OBS_GEO, m)));
+scene.add(warmGroup);
+
+function applyQuality(t) {
+  qualityTier = t;
+  const Q = QUALITY[t];
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.pr));
+
+  renderer.shadowMap.enabled = Q.shadows > 0;
+  sun.castShadow = Q.shadows > 0;
+  if (Q.shadows > 0) {
+    renderer.shadowMap.type = Q.shadows === 2 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    const size = Q.shadows === 2 ? 1024 : 512;
+    if (sun.shadow.mapSize.x !== size) {
+      sun.shadow.mapSize.set(size, size);
+      if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+    }
+  }
+  if (Q.fill && !fillLight.parent) scene.add(fillLight);
+  if (!Q.fill && fillLight.parent) scene.remove(fillLight);
+  stars.geometry.setDrawRange(0, Q.stars);
+
+  ALL_MATS.forEach(m => { m.needsUpdate = true; });
+  scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
+  renderer.compile(scene, camera);
+  console.info('[Trompo Runner] calidad gráfica:', t);
+}
+applyQuality(START_TIER);
+
+// Si el dispositivo no llega a ~40 fps, baja un nivel de calidad automáticamente
+let perfFrames = 0, perfSlow = 0, perfCooldown = 120;
+function perfMonitor(rawMs) {
+  if (perfCooldown > 0) { perfCooldown--; return; }
+  if (rawMs > 250) return;               // pausa / pestaña en segundo plano
+  perfFrames++;
+  if (rawMs > 25) perfSlow++;            // frame más lento que ~40 fps
+  if (perfFrames >= 90) {
+    if (perfSlow / perfFrames > 0.35 && qualityTier > 0) {
+      applyQuality(qualityTier - 1);
+      perfCooldown = 120;
+    }
+    perfFrames = perfSlow = 0;
+  }
+}
+
+let lastTime = 0, lastIdleRender = -1000;
 function animate(timestamp) {
   requestAnimationFrame(animate);
-  const dt = Math.min((timestamp - lastTime) / 16.67, 3);
+  const rawMs = timestamp - lastTime;
+  const dt = Math.min(rawMs / 16.67, 3);
   lastTime = timestamp;
 
-  if (!alive) { renderer.render(scene, camera); return; }
+  // En menú / pausa / game over la escena está quieta: no hace falta dibujarla a 60 fps
+  // (ahorra batería y evita que el iPad se caliente y baje el rendimiento).
+  if (!alive) {
+    if (timestamp - lastIdleRender > 200) { lastIdleRender = timestamp; renderer.render(scene, camera); }
+    perfFrames = perfSlow = 0;
+    return;
+  }
+  perfMonitor(rawMs);
 
   // ═══════════════════════════════════════════════════════════
   //  SECUENCIA CINEMATOGRÁFICA — UN SOLO RIEL CENTRAL
@@ -1077,8 +1161,8 @@ function animate(timestamp) {
   //  GAMEPLAY NORMAL
   // ═══════════════════════════════════════════════════════════
   tick++;
-  score = Math.floor(tick / 4);
-  scEl.textContent = score;
+  const newScore = Math.floor(tick / 4);
+  if (newScore !== score) { score = newScore; scEl.textContent = score; }
   speed         = 0.14 + score * 0.00035;
   spawnInterval = Math.max(36, 70 - score * 0.09);
 

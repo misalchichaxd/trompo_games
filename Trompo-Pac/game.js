@@ -3,7 +3,10 @@ document.getElementById('t').innerHTML=[...'TROMPOBOT'].map((l,i)=>`<span style=
 
 const HALF=["##############","#o.....#......","#.###.###.###.","#.............","#.##.###..##..","#.............","#.##.##.##### ","#.........#   ","#.##.##.######","#.............","#.###.#.###...","#.............","#.##.##.###.##","#o...........P","##############"];
 const MAP=HALF.map(r=>r+[...r.slice(0,13)].reverse().join(''));
-const T=24,W=27,H=15,cv=document.getElementById('c'),g=cv.getContext('2d');cv.width=W*T;cv.height=H*T;
+const T=24,W=27,H=15,cv=document.getElementById('c'),g=cv.getContext('2d',{alpha:false});
+// Resolución interna nítida en pantallas retina (iPad); si el equipo va lento baja sola a 1x (ver loop)
+let S=Math.min(2,window.devicePixelRatio||1);
+cv.width=W*T*S;cv.height=H*T*S;
 const $=id=>document.getElementById(id);
 const dirs=[[0,-1],[-1,0],[0,1],[1,0]]; // up, left, down, right — orden clásico de prioridad
 const DK={l:[-1,0],r:[1,0],u:[0,-1],d:[0,1]};
@@ -95,7 +98,16 @@ function ghostSpeedMul(lv){
 function scaredDuration(){return Math.max(60,420-(level-1)*20)}
 
 function buildWalls(){
-  walls=document.createElement('canvas');walls.width=W*T;walls.height=H*T;const w=walls.getContext('2d');
+  if(!walls)walls=document.createElement('canvas');
+  const pw=W*T*S,ph=H*T*S;
+  if(walls.width!==pw||walls.height!==ph){walls.width=pw;walls.height=ph}
+  const w=walls.getContext('2d');
+  w.setTransform(S,0,0,S,0,0);
+  // fondo + cuadrícula: antes se redibujaban en cada frame, ahora van pre-dibujados
+  w.fillStyle='#fffdf7';w.fillRect(0,0,W*T,H*T);
+  w.strokeStyle='#d5e6f2';w.lineWidth=1;w.beginPath();
+  for(let y=12;y<H*T;y+=12){w.moveTo(0,y+.5);w.lineTo(W*T,y+.5)}
+  w.stroke();
   w.lineCap='round';w.lineJoin='round';
   const pass=(lw,col)=>{w.lineWidth=lw;w.strokeStyle=col;w.beginPath();
     for(let r=0;r<H;r++)for(let c=0;c<W;c++){if(grid[r][c]!=='#')continue;const x=c*T+12,y=r*T+12;
@@ -341,6 +353,7 @@ function updateParticles(){
   particles=particles.filter(p=>p.life>0);
 }
 
+const portalGrad=[]; // gradientes creados una sola vez
 function drawPortals(){
   // Portales visuales estilo Pac-Man en los bordes de la fila del túnel
   const portals = [
@@ -370,11 +383,14 @@ function drawPortals(){
 
     // Núcleo brillante
     g.globalAlpha = 0.85 * pulse;
-    const grad = g.createRadialGradient(0, 0, 1, 0, 0, 8);
-    grad.addColorStop(0, '#fff');
-    grad.addColorStop(0.5, colors[0]);
-    grad.addColorStop(1, 'transparent');
-    g.fillStyle = grad;
+    if(!portalGrad[i]){
+      const gr = g.createRadialGradient(0, 0, 1, 0, 0, 8);
+      gr.addColorStop(0, '#fff');
+      gr.addColorStop(0.5, colors[0]);
+      gr.addColorStop(1, 'transparent');
+      portalGrad[i] = gr;
+    }
+    g.fillStyle = portalGrad[i];
     g.beginPath();
     g.arc(0, 0, 8, 0, Math.PI * 2);
     g.fill();
@@ -579,9 +595,8 @@ function foe(e,i){
   g.restore();
 }
 function draw(){
-  g.fillStyle='#fffdf7';g.fillRect(0,0,W*T,H*T);g.strokeStyle='#d5e6f2';g.lineWidth=1;
-  for(let y=12;y<H*T;y+=12){g.beginPath();g.moveTo(0,y+.5);g.lineTo(W*T,y+.5);g.stroke()}
-  g.drawImage(walls,0,0);
+  g.setTransform(S,0,0,S,0,0);
+  g.drawImage(walls,0,0,W*T,H*T); // fondo + cuadrícula + muros
   // puerta de la caja de fantasmas (solo si no está rota)
   if(grid[DOOR[1]]&&grid[DOOR[1]][DOOR[0]]==='D'){
     g.strokeStyle='#f7a11a';g.lineWidth=5;g.lineCap='round';g.beginPath();g.moveTo(DOOR[0]*T+4,DOOR[1]*T+12);g.lineTo(DOOR[0]*T+T-4,DOOR[1]*T+12);g.stroke();
@@ -614,24 +629,48 @@ function draw(){
   }
 }
 
-let last=0,acc=0;
+function setScale(n){
+  if(n===S)return;
+  S=n;cv.width=W*T*S;cv.height=H*T*S;
+  if(grid)buildWalls();
+}
+let last=0,acc=0,fr=0,slow=0;
 function loop(ts){
-  acc+=Math.min(ts-last,100);last=ts;
+  const dt=ts-last;
+  acc+=Math.min(dt,100);last=ts;
+  // Si con resolución alta el equipo no llega a ~42 fps, baja a 1x automáticamente
+  if(S>1&&run&&!isPaused&&dt>0&&dt<200){fr++;if(dt>24)slow++;if(fr>=120){if(slow>60)setScale(1);fr=0;slow=0}}
   while(acc>=16.67){acc-=16.67;if(run&&!isPaused)upd()}
   if(pbBtn.disabled===run)pbBtn.disabled=!run;
   if(grid)draw();
   requestAnimationFrame(loop);
 }
+const TURN_TOL=6; // px de tolerancia: si pides el giro un poquito tarde, igual gira (como en el Pac-Man clásico)
+function lateTurn(){
+  const horiz=pl.dx!==0,sg=horiz?pl.dx:pl.dy;
+  const a=(horiz?pl.x:pl.y)-12,n=Math.round(a/T),delta=a-n*T;
+  if(delta*sg<=0||Math.abs(delta)>TURN_TOL)return; // aún no pasa el centro, o ya se pasó mucho
+  const c=horiz?n:Math.round((pl.x-12)/T),r=horiz?Math.round((pl.y-12)/T):n;
+  if(c<0||c>=W||r<0||r>=H)return;
+  const wd=pl.wd;
+  if(wallP(c+wd[0],r+wd[1]))return;
+  if(horiz)pl.x=n*T+12;else pl.y=n*T+12; // regresa al centro de la celda y gira
+  pl.dx=wd[0];pl.dy=wd[1];
+}
 function setDir(k){
   if(!pl||isPaused)return;pl.wd=DK[k];
   if(dashT>0)return; // en dash no se invierte
-  if((pl.dx||pl.dy)&&pl.wd[0]===-pl.dx&&pl.wd[1]===-pl.dy){pl.dx=pl.wd[0];pl.dy=pl.wd[1]}
+  if(pl.dx||pl.dy){
+    if(pl.wd[0]===-pl.dx&&pl.wd[1]===-pl.dy){pl.dx=pl.wd[0];pl.dy=pl.wd[1]}
+    else if(pl.wd[0]!==pl.dx||pl.wd[1]!==pl.dy)lateTurn();
+  }
   updateDirGuide(); // actualizar flecha de guía al pedir dirección
 }
 
 // Guía de dirección (flecha a la izquierda del contenedor)
+const dirGuideEl=document.getElementById('dir-guide');let dirKey=null;
 function updateDirGuide(){
-  const el=document.getElementById('dir-guide');
+  const el=dirGuideEl;
   if(!el)return;
   // Prioridad: dirección actual de movimiento, si no la pedida, si no face
   let d=null;
@@ -645,7 +684,7 @@ function updateDirGuide(){
     else if(d[1]===-1)key='u';
     else if(d[1]===1)key='d';
   }
-  el.dataset.dir=key;
+  if(key!==dirKey){dirKey=key;el.dataset.dir=key} // solo toca el DOM si cambió
 }
 const KM={ArrowLeft:'l',ArrowRight:'r',ArrowUp:'u',ArrowDown:'d',a:'l',d:'r',w:'u',s:'d'};
 addEventListener('keydown',e=>{
@@ -657,18 +696,61 @@ addEventListener('keydown',e=>{
 });
 pbBtn.addEventListener('click',()=>{setPause(!isPaused);pbBtn.blur()});
 $('resume').addEventListener('click',()=>setPause(false));
-dbBtn.addEventListener('click',()=>{doDash();dbBtn.blur()});
+// Dash e ira reaccionan al TOCAR (pointerdown), no al soltar el dedo
+function onPress(btn,fn){
+  btn.addEventListener('pointerdown',e=>{e.preventDefault();fn()});
+  btn.addEventListener('click',e=>{if(e.detail===0)fn()}); // teclado (Enter / Espacio)
+}
+onPress(dbBtn,doDash);
 const rageBtn=document.getElementById('rage-btn');
-if(rageBtn)rageBtn.addEventListener('click',()=>{activateRage();rageBtn.blur()});
+if(rageBtn)onPress(rageBtn,activateRage);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)setPause(true)}); // auto-pausa al cambiar de pestaña
 document.querySelectorAll('.pad button').forEach(b=>b.addEventListener('pointerdown',e=>{e.preventDefault();setDir(b.dataset.d)}));
-let sx,sy;
-cv.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY},{passive:true});
-cv.addEventListener('touchend',e=>{
-  const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;
-  if(Math.max(Math.abs(dx),Math.abs(dy))<20)return;
-  setDir(Math.abs(dx)>Math.abs(dy)?(dx>0?'r':'l'):(dy>0?'d':'u'));
+// ── Swipe continuo en TODA la pantalla ──
+// Antes solo se detectaba al levantar el dedo y solo sobre el canvas. Ahora cambia de dirección
+// mientras el dedo se mueve y se re-ancla, así puedes encadenar giros sin despegar el dedo.
+const SWIPE_MIN=14; // px
+let sw=null;
+const isUI=el=>el.closest&&el.closest('button,.ov,#name-entry,#back-confirm');
+addEventListener('pointerdown',e=>{
+  if(e.pointerType==='mouse'||isUI(e.target))return;
+  sw={id:e.pointerId,x:e.clientX,y:e.clientY};
 },{passive:true});
+addEventListener('pointermove',e=>{
+  if(!sw||e.pointerId!==sw.id)return;
+  const dx=e.clientX-sw.x,dy=e.clientY-sw.y;
+  if(Math.max(Math.abs(dx),Math.abs(dy))<SWIPE_MIN)return;
+  setDir(Math.abs(dx)>Math.abs(dy)?(dx>0?'r':'l'):(dy>0?'d':'u'));
+  sw.x=e.clientX;sw.y=e.clientY;
+},{passive:true});
+const endSw=e=>{if(sw&&e.pointerId===sw.id)sw=null};
+addEventListener('pointerup',endSw);addEventListener('pointercancel',endSw);
+document.addEventListener('gesturestart',e=>e.preventDefault()); // sin zoom por pellizco en iOS
+document.addEventListener('touchstart',()=>{},{passive:true});   // hace que :active funcione en iOS
+
+// ── Ajuste del laberinto al espacio disponible (sin scroll, tamaño máximo) ──
+function fit(){
+  const area=$('area'),bub=$('bubble');
+  const aw=area.clientWidth,ah=area.clientHeight;
+  if(!aw||!ah)return;
+  const SIDE=28,BOR=8; // padding lateral de la burbuja y borde del canvas
+  const apply=w=>{
+    w=Math.max(220,Math.floor(w));
+    cv.style.width=w+'px';cv.style.height=(Math.round((w-BOR)*H/W)+BOR)+'px';
+    bub.style.width=(w+SIDE)+'px';
+    return w;
+  };
+  let cw=apply(Math.min(aw,1000)-SIDE);
+  for(let i=0;i<5;i++){
+    const over=bub.offsetHeight-ah;
+    if(over<=0)break;
+    cw=apply(cw-Math.ceil(over*W/H)-1);
+  }
+}
+fit();
+addEventListener('resize',fit);addEventListener('orientationchange',()=>setTimeout(fit,150));
+if(window.ResizeObserver)new ResizeObserver(fit).observe($('area'));
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fit);
 
 // ══════════════ Sistema de récords TOP 5 (mismo que Trompo Runner) ══════════════
 const HS_KEY='trompopac_highscores_v1';
